@@ -8,6 +8,10 @@ use std::{
 };
 use std::sync::Arc;
 use serde::{Serialize,Deserialize};
+mod database;
+use crate::database as Database;
+mod config;
+use crate::config as ConfigFile;
 
 #[derive(Clone,Debug,Default)]
 enum Request{
@@ -31,70 +35,71 @@ impl ToString for Request{
     }
 }
 
-#[derive(Serialize,Deserialize,Clone,Copy,Debug)]
+#[derive(Default,Serialize,Deserialize,Clone,Copy,Debug)]
 struct Lesson{
     classroom  : u8,
     subject    : u8,
     teacher    : u8
 }
-#[derive(Serialize,Debug,Deserialize)]
+#[derive(Default,Serialize,Debug,Deserialize)]
 struct SchoolDay{
-    lessons : HashMap<u8, Lesson>
+    lessons : HashMap<String, Lesson>
 }
 
-#[derive(Serialize,Deserialize,Clone,Debug, Default)]
+#[derive(PartialEq, Eq,Serialize,Deserialize,Clone,Debug, Default)]
 struct Configuration{
     password : String,
     ip_addr  : Option<IpAddr>,
-    teachers : HashMap<u8, String>,
-    subjects : HashMap<u8, String>,
-    classes  : HashMap<u8, String>
+    number_of_classes: Option<u8>,
+    teachers : HashMap<String, String>,
+    subjects : HashMap<String, String>,
+    classes  : HashMap<String, String>
 }
 
 #[tokio::main]
 async fn main() {
-    let mut config_file : String = String::from("");
-    if fs::exists("data").unwrap_or(false) == false{
-        fs::create_dir("data").unwrap_or(());
-    }
-    else{
-        config_file = match fs::read_to_string("data/config.toml"){
-            Ok(v) => {v},
-            Err(e) => {
-                if !fs::exists("data/config.toml").unwrap_or(false){
-                    fs::write("data/config.toml", 
-                        toml::to_string(&Configuration::default()).unwrap_or("".to_string()))
-                        .unwrap_or(());
-                }
-                else{
-                    eprintln!("Couldn't read file in directory: data/config.toml: {}", e);
-                }
-                std::process::exit(-1);
-            }
-        };
-    }
-    let shared_config : Arc<Configuration> = match toml::from_str(&config_file){
-        Ok(v) => Arc::new(v),
-        Err(e) => {
-            eprintln!("Couldn't convert file /data/config.toml to Configuration Struct: {}", e);
+    match Database::init().await{
+        Ok(_) => {}
+        Err(_) => {
+            println!("Error initializing data directory");
             std::process::exit(-1);
         }
+    }
+
+    let shared_config = Arc::new(match ConfigFile::get().await{
+        Ok(v) => {v},
+        Err(_) => {None}
+    });
+    let ip_address = match &*shared_config{
+        Some(v) => {
+            match v.ip_addr{
+                Some(v1) => Some(v1),
+                None => {None}
+            }
+        }
+        None => {None}
     };
     let listener : TcpListener = match TcpListener::bind
-        (format!("{}:8000", shared_config.ip_addr.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))))){
+        (format!("{}:8000", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))))){
             Ok(v) => v,
             Err(e) => {
-                if shared_config.ip_addr.is_none(){
+                if ip_address.is_none(){
                     eprintln!(
                     "data/config.toml doesn't contain any IP Address, like: `127.0.0.1`;
                     Server automatically used this address with port 8000, but it wasn't able to connect : {}", 
                     e);
                     std::process::exit(-1);
                 }
-                eprintln!("Error connecting to address: `{}` : {}", shared_config.ip_addr.unwrap(), e);
+                eprintln!("Error connecting to address: `{}` : {}", ip_address.unwrap(), e);
                 std::process::exit(-1);
             }
     };
+    start_listening(listener).await;
+    println!("Shutdown?");
+    std::process::exit(0);
+}
+
+async fn start_listening(listener: TcpListener){
     loop{
         for s in listener.incoming(){
             let stream : Option<TcpStream> = match s{
@@ -225,7 +230,7 @@ async fn get_password() -> Result<Option<String>, ()>{
         }
     }
 }
-async fn get_teachers() -> Result<Option<HashMap<u8, String>>, ()>{
+async fn get_teachers() -> Result<Option<HashMap<String, String>>, ()>{
     match fs::read_to_string("data/config.toml"){
         Ok(v) => {
             match toml::from_str::<Option<Configuration>>(&v){
@@ -249,7 +254,7 @@ async fn get_teachers() -> Result<Option<HashMap<u8, String>>, ()>{
         }
     }
 }
-async fn get_lessons() -> Result<Option<HashMap<u8,String>>, ()>{
+async fn get_lessons() -> Result<Option<HashMap<String,String>>, ()>{
     match fs::read_to_string("data/config.toml"){
         Ok(v) => {
             match toml::from_str::<Option<Configuration>>(&v){
