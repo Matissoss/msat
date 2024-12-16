@@ -1,0 +1,9 @@
+password = "test_password"
+
+[teachers]
+0 = "Hello"
+1 = "World"
+
+[subjects]
+0 = "Fizyka"
+1 = "Chemia"
