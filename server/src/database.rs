@@ -1,115 +1,86 @@
-use tokio;
-use crate::Configuration;
-use crate::SchoolDay;
+use rusqlite::Connection;
+use rusqlite;
 
 pub async fn init() -> Result<(), ()>{
-    // Check for ALL files, if some miss, create them
     match std::fs::read_dir("data"){
-        Ok(_) => {}
+        Ok(_) => {},
         Err(_) => {
             match std::fs::create_dir("data"){
                 Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Error creating directory: {}", e);
-                    return Err(());
+                Err(e)=>{
+                    eprintln!("12: {}", e);
                 }
             }
         }
     }
-    let config : Option<Configuration> = match tokio::fs::read_to_string("data/config.toml").await{
-        Ok(v) => {
-            match toml::from_str::<Configuration>(&v){
-                Ok(v1) => Some(v1),
-                Err(e) => {
-                    eprintln!("Couldn't parse data/config.toml to Configuration struct:\n{}", e);
-                    None
-                }
-            }
-        }
+    let database: Connection = match Connection::open("data/database.db"){
+        Ok(v) => v,
         Err(e) => {
-            eprintln!("{}", e);
-            if std::fs::exists("data/config.toml").unwrap_or(false) == false{
-                match std::fs::write("data/config.toml", toml::to_string(&Configuration::default()).unwrap_or("".to_string())){
-                    Ok(_) => {
-                    }
-                    Err(e1) => {
-                        eprintln!("Cannot write content to file: {}", e1);
-                    }
-                }
-            }
-            None
+            eprintln!("Error connecting to database: {}", e);
+            return Err(());
         }
     };
-    let class_nums : u8 = match config{
-        Some(v) => {
-            match v.number_of_classes{
-                Some(v1) => {
-                    v1
-                }
-                None => {8}
-            }
-        }
-        None => {
-            println!("Number Of Classes is not defined! Using 8 instead");
-            8
-        }
+    match database.execute("CREATE TABLE IF NOT EXISTS lessons (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    classroom_id INTEGER NOT NULL,
+    teacher_id INTEGER NOT NULL,
+    lesson_number INTEGER NOT NULL,
+    FOREIGN KEY(subject_id) REFERENCES subjects(id),
+    FOREIGN KEY(class_id) REFERENCES classes(id),
+    FOREIGN KEY(classroom_id) REFERENCES classrooms(id),
+    FOREIGN KEY(teacher_id) REFERENCES teachers(id)
+    );", ()){
+        Ok(_) => {}
+        Err(_) => {return Err(())}
     };
-    let dir_exists =match std::fs::read_dir("data/lessons"){
-        Ok(_) => {true}
-        Err(_) => {
-            match std::fs::create_dir("data/lessons"){
-                Ok(_) => {true}
-                Err(e) => {
-                    eprintln!("Error creating directory: {}", e);
-                    false
-                }
-            }
-        }
+    match database.execute("CREATE TABLE IF NOT EXISTS classrooms (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT
+    );", ()){
+        Ok(_) => {}
+        Err(_) => {return Err(())}
     };
-    if dir_exists == true{
-        for class in 1..class_nums+1{
-            let sub_dir_exists = match std::fs::read_dir(format!("data/lessons/class{}", class)){
-                Ok(_) => {true}
-                Err(_) => {
-                    match std::fs::create_dir(format!("data/lessons/class{}", class)){
-                        Ok(_) => {true}
-                        Err(e) => {
-                            eprintln!("Error creating directory: {}", e);
-                            false
-                        }
-                    }
-                }
-            };
-            if sub_dir_exists{
-                for day in 1..=7u8{
-                    match std::fs::exists(format!("data/lessons/class{}/{}", class, day)){
-                        Ok(v) => {
-                            if v == false{
-                                match std::fs::write(format!("data/lessons/class{}/{}.toml", class, day), 
-                                    toml::to_string(&SchoolDay::default()).unwrap_or("".to_string())){
-                                    Ok(_) => {},
-                                    Err(e) => {
-                                        eprintln!("Error creating file: {}", e);
-                                    }
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            match std::fs::write(format!("data/lessons/class{}/{}.toml", class, day), 
-                                toml::to_string(&SchoolDay::default()).unwrap_or("".to_string())){
-                                Ok(_) => {},
-                                Err(e) => {
-                                    eprintln!("Error creating file: {}", e);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    else{
-        return Err(());
-    }
+    match database.execute("CREATE TABLE IF NOT EXISTS teachers (
+    id INTEGER PRIMARY KEY,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL
+    );", ()){
+        Ok(_) => {}
+        Err(_) => {return Err(())}
+    };
+    match database.execute("CREATE TABLE IF NOT EXISTS duty (
+    id INTEGER PRIMARY KEY,
+    teacher_id INTEGER NOT NULL,
+    break_number INTEGER NOT NULL,
+    FOREIGN KEY(teacher_id) REFERENCES teachers(id)
+    );", ()){
+        Ok(_) => {}
+        Err(_) => {return Err(())}
+    };
+    match database.execute("CREATE TABLE IF NOT EXISTS hours (
+    id INTEGER PRIMARY KEY,
+    date TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL
+    );", ()){
+        Ok(_) => {}
+        Err(_) => {return Err(())}
+    };
+    match database.execute("CREATE TABLE IF NOT EXISTS classes (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+    );", ()){
+        Ok(_) => {}
+        Err(_) => {return Err(())}
+    };
+    match database.execute("CREATE TABLE IF NOT EXISTS subjects (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+    );", ()){
+        Ok(_) => {}
+        Err(_) => {return Err(())}
+    };
     return Ok(());
 }

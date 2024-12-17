@@ -7,64 +7,154 @@ use std::{
     }
 };
 use std::sync::Arc;
+use tokio::sync::Mutex;
+use rusqlite::Connection as SQLite;
 use serde::{Serialize,Deserialize};
 mod database;
 use crate::database as Database;
 mod config;
 use crate::config as ConfigFile;
 
-#[derive(Clone,Debug,Default)]
+#[derive(Clone,Debug,Default, PartialEq, Eq, PartialOrd, Ord)]
 enum Request{
-    GET(u8, String),
-    UPL(u8, String, String),
+    GET,
+    POST,
     #[default]
     Other
 }
 
+const VERSION : u16 = 10;
+
 impl ToString for Request{
     fn to_string(&self) -> String {
         match &self{
-            Self::GET(t, v) => {
-                format!("GET {} : {}", t, v)
+            Self::GET => {
+                "GET".to_string()
             },
-            Self::UPL(t,_,v) => {
-                format!("UPL {} : {}", t, v)
+            Self::POST => {
+                "POST".to_string()
             },
             _ => "None".to_string()
         }
     }
 }
 
-#[derive(Default,Serialize,Deserialize,Clone,Copy,Debug)]
-struct Lesson{
-    classroom  : u8,
-    subject    : u8,
-    teacher    : u8
-}
-#[derive(Default,Serialize,Debug,Deserialize)]
-struct SchoolDay{
-    lessons : HashMap<String, Lesson>
-}
-
 #[derive(PartialEq, Eq,Serialize,Deserialize,Clone,Debug, Default)]
 struct Configuration{
     password : String,
     ip_addr  : Option<IpAddr>,
-    number_of_classes: Option<u8>,
-    teachers : HashMap<String, String>,
-    subjects : HashMap<String, String>,
-    classes  : HashMap<String, String>
+}
+#[derive(Clone,Copy,Debug,PartialEq, Eq, PartialOrd, Ord)]
+enum ConnectionError{
+    CannotRead,
+    WrongVersion,
+    RequestParseError,
+    NoVersion,
+    NonHex,
+    WrongPassword,
+    NoPassword,
+    WritingError,
+    ResponseError,
 }
 
+impl std::fmt::Display for ConnectionError{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self{
+            Self::NonHex => {
+                writeln!(f, "Wrong Hex value was provided.")
+            }
+            Self::NoVersion => {
+                writeln!(f, "Version wasn't provided in request.")
+            }
+            Self::NoPassword => {
+                writeln!(f, "Password wasn't provided in POST request.")
+            }
+            Self::WrongVersion => {
+                writeln!(f, "Client uses different version than server.")
+            }
+            Self::CannotRead => {
+                writeln!(f, "Server was unable to read message from client.")
+            }
+            Self::RequestParseError => {
+                writeln!(f, "Server was unable to parse request.")
+            }
+            Self::WritingError => {
+                writeln!(f, "Server was unable to send message to client.")
+            }
+            Self::WrongPassword => {
+                writeln!(f, "Client provided wrong password.")
+            }
+            Self::ResponseError => {
+                writeln!(f, "Server was unable to respond to request.")
+            }
+        }
+    }
+}
+
+struct ParsedRequest{
+    request: Request,
+    content: Vec<String>,
+    password: Option<String>,
+    request_number: u8
+}
+
+impl From<(Request, Vec<String>, Option<String>, u8)> for ParsedRequest{
+    fn from(value: (Request, Vec<String>, Option<String>, u8)) -> Self {
+        let (req, con, pas, req_num) = value;
+        return ParsedRequest{
+            request: req,
+            content: con,
+            password: pas,
+            request_number: req_num
+        };
+    }
+}
+
+fn from_hex(input: &String) -> Result<u8, ()>{
+    if input.len() != 2{
+        return Err(());
+    }
+    else{
+        let mut final_out : u8 = 0;
+        for (i,c) in input.chars().enumerate(){
+            match c.to_ascii_uppercase(){
+                'A'|'B'|'C'|'D'|'E'|'F' => {
+                    final_out += (c as u8 - 'A' as u8 + 10) * power(2-i as u8, 16);
+                }
+                '1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9'|'0' => {
+                    final_out += (c as u8 - '0' as u8) * power(2-i as u8, 16);
+                }
+                _ => {
+                    return Err(())
+                }
+            }
+        }
+        Ok(final_out)
+    }
+}
+fn power(p: u8, n: u8) -> u8{
+    let mut fin : u8 = 0;
+    for _ in 0..p{
+        fin *= p;
+    }
+    fin
+}
 #[tokio::main]
 async fn main() {
     match Database::init().await{
         Ok(_) => {}
         Err(_) => {
-            println!("Error initializing data directory");
+            println!("Error initializing database");
             std::process::exit(-1);
         }
     }
+    let mut database : Arc<Mutex<SQLite>> = Arc::new(Mutex::new(match SQLite::open("database.db"){
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error opening database: {}", e);
+            std::process::exit(-1);
+        }
+    }));
 
     let shared_config = Arc::new(match ConfigFile::get().await{
         Ok(v) => {v},
@@ -94,12 +184,12 @@ async fn main() {
                 std::process::exit(-1);
             }
     };
-    start_listening(listener).await;
+    start_listening(listener, database).await;
     println!("Shutdown?");
     std::process::exit(0);
 }
 
-async fn start_listening(listener: TcpListener){
+async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
     loop{
         for s in listener.incoming(){
             let stream : Option<TcpStream> = match s{
@@ -110,172 +200,116 @@ async fn start_listening(listener: TcpListener){
                 }
             };
             if stream.is_some(){
-                tokio::spawn(async{
-                    handle_connection(stream.unwrap()).await
+                let copied = Arc::clone(&db);
+                tokio::spawn(async move{
+                    match handle_connection(stream.unwrap(), copied).await{
+                        Ok(_) => {}
+                        Err(e) => {print!("{}", e)} 
+                    }
                 });
+            }
+            else{
+                println!("Error! Stream is None");
             }
         }
     }
 }
 
-async fn handle_connection(mut stream: TcpStream){
-            let local_addr = stream.local_addr().unwrap();
-            let addr_ip = local_addr.ip();
-            let mut buffer = [0u8;1024];
-            let lenread = stream.read(&mut buffer).unwrap();
-            let mut passwd : Option<&str> = None;
-            let request : Request = match &buffer[0..3]{
-                b"GET" => {
-                    Request::GET(buffer[4], String::from_utf8_lossy(&buffer[6..lenread]).to_string())
-                },
-                b"UPL"|b"POS" => {
-                    let string = String::from_utf8_lossy(&buffer[6..lenread]).to_string();
-                    for (i, chr) in string.chars().enumerate(){
-                        let chars = string.chars().collect::<Vec<char>>();
-                        if chr == 'p' && chars[i+1] == 's' && chars[i+2] == 'w'&&chars[i+3]=='d'&&chars[i+4]=='='{
-                            let mut index : usize = i+5;
-                            for chr1 in &chars[i+5..]{
-                                if chr1 == &' '{
-                                    break;
-                                }
-                                else{
-                                    index+=1;
-                                }
-                            }
-                            passwd = Some(str::
-                                from_utf8(&buffer[(6+i+5)..6+index])
-                                .unwrap_or(""));
-                            break;
-                        }
-                    };
-                    if passwd.is_none(){
-                        stream.write_all(b"Couldn't get password").unwrap();
-                        return;
-                    }
-                    Request::UPL(buffer[4], passwd.unwrap().to_string(),String::from_utf8_lossy(&buffer[6..lenread]).to_string())
-                },
-                _ => Request::Other
-            };
-            let parsed_out = parse_request(request.clone(), &passwd.unwrap_or("").to_string()).await;
-            println!("---\nConnection Established with {}!\nRequest: {}\nLength of message: {}\nMessage:{}\nParsed:{}", 
-                addr_ip,request.to_string(),lenread,String::from_utf8_lossy(&buffer[5..buffer.len()]),parsed_out);
-            stream.write_all(parsed_out.as_bytes()).unwrap();
-}
-
-async fn parse_request(request: Request, input_password : &String) -> String {
-    match request{
-        Request::GET(t, value) => {
-            match t{
-                65 => {
-                    fs::read_to_string("data/version.ver").unwrap_or("-1".to_string())
-                },
-                66 => {
-                    "1".to_string()
-                },
-                76 => {
-                    "-1".to_string()
-                    // Plan lekcji dla użytkownika
-                }
-                77 => {
-                    "-1".to_string()
-                    // Informacje na temat dyżuru True/False
-                }
-                78 => {
-                    "-1".to_string()
-                    // Informacje na temat dyżuru String
-                }
-                _ => {"-1".to_string()}
-            }
-        },
-        Request::UPL(t, p, v) => {
-            let password = match get_password().await{
-                Ok(v)=>v,
-                Err(_)=>None
-            };
-            let can_progress = if password.is_some() && !input_password.is_empty(){
-                &password.unwrap() == input_password
-            }
-            else{false};
-            if can_progress{
-                match t{
-                    _ => {
-                        "188".to_string()
-                    }
-                }
-            }   
-            else{"190".to_string()}},
-        _ => {"198".to_string()}
-    }
-}
-
-async fn get_password() -> Result<Option<String>, ()>{
-    match fs::read_to_string("data/config.toml"){
+async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Result<(), ConnectionError>{
+    let mut data_sent = [0u8; 1024];
+    match stream.read(&mut data_sent){
+        Ok(_) => {}
+        Err(_) => {return Err(ConnectionError::CannotRead);}
+    };
+    let parsed_req : ParsedRequest = ParsedRequest::from(match parse_request(&String::from_utf8_lossy(&data_sent)).await{
+        Ok(v) => v,
+        Err(e) => {
+            return Err(e);
+        }
+    });
+    match stream.local_addr(){
         Ok(v) => {
-            match toml::from_str::<Configuration>(&v){
-                Ok(b) => {
-                    if !b.password.is_empty(){
-                        return Ok(Some(b.password));
-                    }
-                    else{
-                        return Ok(None);
+            println!("-----\nConnection with: {}, Port:{}\n-----", 
+            v.ip(), v.port())
+        },
+        Err(e) => {
+            eprintln!("Error getting local address: {}", e);
+        }
+    }
+    match parsed_req.request{
+        Request::GET|Request::POST =>{
+            if parsed_req.request == Request::POST && parsed_req.password.is_none(){
+                return Err(ConnectionError::NoPassword);
+            }
+            match get_response(parsed_req).await{
+                Ok(v) => {
+                    println!("{}", v);
+                    match stream.write_all(v.as_bytes()){
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Error writing message: {}", e);
+                            return Err(ConnectionError::WritingError);
+                        }
                     }
                 }
                 Err(_) => {
-                    return Err(());
+                    return Err(ConnectionError::ResponseError);
                 }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn get_response(parsed_request: ParsedRequest) -> Result<String, ()>{
+    match parsed_request.request{
+        Request::GET => {
+            Ok(format!("GET: \n{} \n{:?}", String::from_iter(parsed_request.content),parsed_request.request_number))
+        }
+        Request::POST => {
+            Ok(format!("POST: \n{} \n{:?} \n{}", String::from_iter(parsed_request.content), parsed_request.password,parsed_request.request_number))
+        }
+        _ => {Ok("-1".to_string())}
+    }
+}
+
+async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<String>,u8), ConnectionError> {
+    let sliced_input = input.split_whitespace().collect::<Vec<&str>>();
+    let (mut request_type,mut content,mut password, mut request_num) : (Request,Vec<String>,Option<String>,u8) = 
+    (Request::Other,vec![String::default()],None,0);
+    match sliced_input[0]{
+        "POST" => {request_type = Request::POST},
+        "GET" => {request_type = Request::GET}
+        _ => {}
+    }
+    match sliced_input[1].parse::<u16>(){
+        Ok(v) => {
+            if v != VERSION{
+                return Err(ConnectionError::WrongVersion);
             }
         }
         Err(_) => {
-            return Err(());
+            return Err(ConnectionError::NoVersion);
         }
     }
-}
-async fn get_teachers() -> Result<Option<HashMap<String, String>>, ()>{
-    match fs::read_to_string("data/config.toml"){
+    match from_hex(&sliced_input[2].to_string()){
         Ok(v) => {
-            match toml::from_str::<Option<Configuration>>(&v){
-                Ok(b) => {
-                    if b.is_some(){
-                        if !b.clone().unwrap().teachers.is_empty(){
-                            return Ok(Some(b.unwrap().teachers));
-                        }
-                        else{
-                            return Ok(None);
-                        }
-                    }else{
-                        return Ok(None);
-                    }
-                },
-                Err(_) => Err(())
-            }
-        },
+            request_num = v;
+        }
         Err(_) => {
-            return Err(());
+            return Err(ConnectionError::NonHex);
         }
     }
-}
-async fn get_lessons() -> Result<Option<HashMap<String,String>>, ()>{
-    match fs::read_to_string("data/config.toml"){
-        Ok(v) => {
-            match toml::from_str::<Option<Configuration>>(&v){
-                Ok(b) => {
-                    if b.is_some(){
-                        if !b.clone().unwrap().subjects.is_empty(){
-                            return Ok(Some(b.unwrap().subjects));
-                        }
-                        else{
-                            return Ok(None);
-                        }
-                    }
-                    else{
-                        return Ok(None);
-                    }
-                }
-                Err(_) =>{
-                    return Err(());
-                }
-            }
+    for word in &sliced_input[3..]{
+        if word.contains("password="){
+            if request_type == Request::POST{
+                password = Some(word[8..].to_string());
+            } 
         }
-        Err(_) => {return Err(());}
+        else{
+            content.push(word.to_string());
+        }
     }
+    Ok((request_type,content,password,request_num))
 }
