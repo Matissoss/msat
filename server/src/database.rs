@@ -1,5 +1,4 @@
 use rusqlite::Connection;
-use rusqlite;
 
 pub async fn init() -> Result<(), ()>{
     match std::fs::read_dir("data"){
@@ -9,6 +8,7 @@ pub async fn init() -> Result<(), ()>{
                 Ok(_) => {}
                 Err(e)=>{
                     eprintln!("12: {}", e);
+                    return Err(());
                 }
             }
         }
@@ -20,10 +20,12 @@ pub async fn init() -> Result<(), ()>{
             return Err(());
         }
     };
+    println!("[     OK     ] Opened database");
     match database.execute("CREATE TABLE IF NOT EXISTS lessons (
-    id INTEGER PRIMARY KEY,
+    week_day INTEGER NOT NULL,
     class_id INTEGER NOT NULL,
     classroom_id INTEGER NOT NULL,
+    subject_id INTEGER NOT NULL,
     teacher_id INTEGER NOT NULL,
     lesson_number INTEGER NOT NULL,
     FOREIGN KEY(subject_id) REFERENCES subjects(id),
@@ -34,14 +36,15 @@ pub async fn init() -> Result<(), ()>{
         Ok(_) => {}
         Err(_) => {return Err(())}
     };
+    println!("[     OK     ] Executed creating lessons");
     match database.execute("CREATE TABLE IF NOT EXISTS classrooms (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT
+    name TEXT NOT NULL
     );", ()){
         Ok(_) => {}
         Err(_) => {return Err(())}
     };
+    println!("[     OK     ] Executed creating classrooms");
     match database.execute("CREATE TABLE IF NOT EXISTS teachers (
     id INTEGER PRIMARY KEY,
     first_name TEXT NOT NULL,
@@ -50,6 +53,7 @@ pub async fn init() -> Result<(), ()>{
         Ok(_) => {}
         Err(_) => {return Err(())}
     };
+    println!("[     OK     ] Executed creating teachers");
     match database.execute("CREATE TABLE IF NOT EXISTS duty (
     id INTEGER PRIMARY KEY,
     teacher_id INTEGER NOT NULL,
@@ -59,15 +63,18 @@ pub async fn init() -> Result<(), ()>{
         Ok(_) => {}
         Err(_) => {return Err(())}
     };
+    println!("[     OK     ] Executed creating duty");
+    // date is saved in MMDD format
     match database.execute("CREATE TABLE IF NOT EXISTS hours (
     id INTEGER PRIMARY KEY,
-    date TEXT NOT NULL,
+    date TEXT NOT NULL, 
     start_time TEXT NOT NULL,
     end_time TEXT NOT NULL
     );", ()){
         Ok(_) => {}
         Err(_) => {return Err(())}
     };
+    println!("[     OK     ] Executed creating hours");
     match database.execute("CREATE TABLE IF NOT EXISTS classes (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL
@@ -75,6 +82,7 @@ pub async fn init() -> Result<(), ()>{
         Ok(_) => {}
         Err(_) => {return Err(())}
     };
+    println!("[     OK     ] Executed creating classes");
     match database.execute("CREATE TABLE IF NOT EXISTS subjects (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL
@@ -82,5 +90,6 @@ pub async fn init() -> Result<(), ()>{
         Ok(_) => {}
         Err(_) => {return Err(())}
     };
+    println!("[     OK     ] Executed creating subjects");
     return Ok(());
 }
