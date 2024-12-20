@@ -1,6 +1,6 @@
 use core::str;
-use std::{
-    collections::HashMap, fs, io::{
+use std::{ 
+    io::{
         Read, Write
     }, net::{
         IpAddr, Ipv4Addr, TcpListener, TcpStream
@@ -24,9 +24,9 @@ enum Request{
     Other
 }
 
-const VERSION : u16  = 10;
-const SUCCESS : &str = "[     OK     ]";
-const ERROR   : &str = "[     ERR     ]";
+pub const VERSION : u16  = 10;
+pub const SUCCESS : &str = "[     OK     ]";
+pub const ERROR   : &str = "[     ERR     ]";
 
 impl ToString for Request{
     fn to_string(&self) -> String {
@@ -47,6 +47,7 @@ struct Configuration{
     password : String,
     ip_addr  : Option<IpAddr>,
 }
+#[allow(unused)]
 #[derive(Clone,Copy,Debug,PartialEq, Eq, PartialOrd, Ord)]
 enum ConnectionError{
     CannotRead,
@@ -64,31 +65,31 @@ impl std::fmt::Display for ConnectionError{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self{
             Self::Other => {
-                writeln!(f, "Other")
+                write!(f, "{} Other", ERROR)
             }
             Self::NoVersion => {
-                writeln!(f, "Version wasn't provided in request.")
+                write!(f, "{} 400: Version wasn't provided in request.", ERROR)
             }
             Self::NoPassword => {
-                writeln!(f, "Password wasn't provided in POST request.")
+                write!(f, "{} 403: Password wasn't provided in POST request.", ERROR)
             }
             Self::WrongVersion => {
-                writeln!(f, "Client uses different version than server.")
+                write!(f, "{} 505: Client uses different version than server.", ERROR)
             }
             Self::CannotRead => {
-                writeln!(f, "Server was unable to read message from client.")
+                write!(f, "{} 500: Server was unable to read message from client.", ERROR)
             }
             Self::RequestParseError => {
-                writeln!(f, "Server was unable to parse request.")
+                write!(f, "{} 400: Server was unable to parse request.", ERROR)
             }
             Self::WritingError => {
-                writeln!(f, "Server was unable to send message to client.")
+                write!(f, "{} 500: Server was unable to send message to client.", ERROR)
             }
             Self::WrongPassword => {
-                writeln!(f, "Client provided wrong password.")
+                write!(f, "{} 400: Client provided wrong password.", ERROR)
             }
             Self::ResponseError => {
-                writeln!(f, "Server was unable to respond to request.")
+                write!(f, "{} 400: Server was unable to respond to request.", ERROR)
             }
         }
     }
@@ -113,33 +114,47 @@ impl From<(Request, Vec<String>, Option<String>, u8)> for ParsedRequest{
     }
 }
 
+const CLEAR : &str = if cfg!(windows){
+    "cls"
+}
+else{
+    "clear"
+};
+
 #[tokio::main]
 async fn main() {
+    match std::process::Command::new(CLEAR).status(){
+        Ok(_) => {
+            println!("Initializing msat version {}...", VERSION);
+        }
+        Err(_) => {}
+    };
+
     match Database::init().await{
         Ok(_) => {}
         Err(_) => {
-            println!("Error initializing database");
+            println!("{} Error initializing database", ERROR);
             std::process::exit(-1);
         }
     }
     let database : Arc<Mutex<SQLite>> = Arc::new(Mutex::new(match SQLite::open("data/database.db"){
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Error opening database: {}", e);
+            eprintln!("{} Error opening database: {}", ERROR,e);
             std::process::exit(-1);
         }
     }));
     match database.lock().await.execute_batch("PRAGMA journal_mode = WAL;"){
         Ok(_) => {}
         Err(e) =>{
-            eprintln!("Error executing batch: {}", e);
+            eprintln!("{} Error executing batch: {}", ERROR,e);
             std::process::exit(-1);
         }
     }
     match database.lock().await.busy_timeout(std::time::Duration::from_secs(4)){
         Ok(_) => {}
         Err(e) => {
-            eprintln!("Error setting busy_timeout: {}", e);
+            eprintln!("{} Error setting busy_timeout: {}", ERROR,e);
             std::process::exit(-1);
         }
     }
@@ -147,7 +162,7 @@ async fn main() {
     let shared_config = Arc::new(match ConfigFile::get().await{
         Ok(v) => {v},
         Err(_) => {
-            println!("Error getting configuration"); 
+            println!("{} Error getting configuration", ERROR); 
             None
         }
     });
@@ -161,20 +176,21 @@ async fn main() {
         None => {None}
     };
     let listener : TcpListener = match TcpListener::bind
-        (format!("{}:8000", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))))){
+        (format!("{}:8888", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))))){
             Ok(v) => v,
             Err(e) => {
                 if ip_address.is_none(){
                     eprintln!(
-                    "data/config.toml doesn't contain any IP Address, like: `127.0.0.1`;
-                    Server automatically used this address with port 8000, but it wasn't able to connect : {}", 
+                    "{} data/config.toml doesn't contain any IP Address, like: `127.0.0.1`;
+                    Server automatically used this address with port 8888, but it wasn't able to connect : {}", ERROR,
                     e);
                     std::process::exit(-1);
                 }
-                eprintln!("Error connecting to address: `{}` : {}", ip_address.unwrap(), e);
+                eprintln!("{} Error connecting to address: `{}` : {}", ERROR,ip_address.unwrap(), e);
                 std::process::exit(-1);
             }
     };
+    println!("Listening on {}:8888", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))));
     start_listening(listener, database).await;
     println!("Shutdown?");
     std::process::exit(0);
@@ -183,24 +199,38 @@ async fn main() {
 async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
     loop{
         for s in listener.incoming(){
+            let (mut ip_address, mut port) = (IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),0);
             let stream : Option<TcpStream> = match s{
-                Ok(v) => Some(v),
+                Ok(v) => {
+                    match v.local_addr(){
+                        Ok(v1) => {
+                            (ip_address, port) = (v1.ip(), v1.port());
+                        }
+                        Err(_) => {}
+                    }
+                    Some(v)
+                },
                 Err(e) => {
-                    eprintln!("Couldn't establish connection with TcpStream : {}", e);
+                    eprintln!("{} Couldn't establish connection with TCPStream : {}", ERROR, e);
                     None
                 }
             };
+            
             if stream.is_some(){
                 let copied = Arc::clone(&db);
                 tokio::spawn(async move{
                     match handle_connection(stream.unwrap(), copied).await{
-                        Ok(_) => {}
-                        Err(e) => {print!("{}", e)} 
+                        Ok(_) => {
+                            println!("{} Successfully handled request from TCPStream {}:{}", SUCCESS, ip_address, port);
+                        }
+                        Err(e) => {
+                            println!("{}", e);
+                        } 
                     }
                 });
             }
             else{
-                println!("Error! Stream is None");
+                println!("{} TCPStream is None", ERROR);
             }
         }
     }
@@ -220,11 +250,10 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
     });
     match stream.local_addr(){
         Ok(v) => {
-            println!("-----\nConnection with: {}, Port:{}", 
-            v.ip(), v.port())
+            println!("Connected with {}:{}", v.ip(), v.port());
         },
         Err(e) => {
-            eprintln!("Error getting local address: {}", e);
+            eprintln!("{} Error getting local address: {}", ERROR,e);
         }
     }
     match parsed_req.request{
@@ -234,11 +263,10 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
             }
             match get_response(parsed_req, db).await{
                 Ok(v) => {
-                    println!("{}", v);
+                    println!("Server provided response: \"|{}|\"", v);
                     match stream.write_all(v.as_bytes()){
                         Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Error writing message: {}", e);
+                        Err(_) => {
                             return Err(ConnectionError::WritingError);
                         }
                     }
@@ -254,7 +282,6 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
 }
 
 async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
-    println!("{}", parsed_request.request_number);
     match parsed_request.request{
         Request::GET => {
             match parsed_request.request_number{
@@ -300,7 +327,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                                     let (u_class, u_classroom, u_subject, u_lesson) = 
                                         (class_id.unwrap(), classroom_id.unwrap(), 
                                          subject_id.unwrap(), lesson_number.unwrap());
-                                    return Ok(format!("200 {};{};{};{};", u_class,u_classroom,u_subject,u_lesson));
+                                    return Ok(format!("200 OK {};{};{};{};", u_class,u_classroom,u_subject,u_lesson));
                                 }
                                 else{
                                     return Err(());
@@ -311,7 +338,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             }
                         }
                     }
-                    return Ok("200".to_string());
+                    return Ok("204 No Content".to_string());
                 }
                 2 => {
                     // GET Hours for this lesson (start time and end time)
@@ -328,7 +355,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     {
                         Ok(v) => v,
                         Err(e) => {
-                            eprintln!("Error with db: {}", e);
+                            eprintln!("{} Error with Database: {}", ERROR, e);
                             return Err(());
                         } 
                     };
@@ -341,7 +368,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     }){
                         Ok(v) => v,
                         Err(e) => {
-                            eprintln!("Error with database?: {}", e);
+                            eprintln!("{} Error with Database: {}", ERROR, e);
                             return Err(());
                         }
                     };
@@ -358,15 +385,15 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Error getting values: {}", e);
+                                eprintln!("{} Error getting values: {}", ERROR, e);
                                 return Err(());
                             }
                         }
                     }
                     if f_end.is_empty()&f_start.is_empty()&f_date.is_empty() == false{
-                        return Ok(format!("200 {};{};{}", f_date, f_start, f_end));
+                        return Ok(format!("200 OK {};{};{}", f_date, f_start, f_end));
                     }
-                    return Ok("100".to_string());
+                    return Ok("204 No Content".to_string());
                 }
                 3 => {
                     // GET teacher for next duty (name)
@@ -413,8 +440,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             }
                         };
                     }
-                    else{println!("All of values are none");return Err(())}
-                    return Ok("200".to_string());
+                    else{
+                        println!("All of values are none");
+                        return Err(());
+                    }
+                    return Ok("201 Created".to_string());
                 }
                 2 => {
                     // POST Teacher - contains ID and full name
@@ -430,21 +460,21 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     let date : u16 = match content[0].parse::<u16>(){
                         Ok(v) => v,
                         Err(e) => {
-                            eprintln!("Error parsing: {}", e);
+                            eprintln!("{} Error parsing: {}", ERROR, e);
                             return Err(());
                         }
                     };
                     let (s_hour, s_minute) = match format_mmdd(&content[1]){
                         Ok(v) => v,
                         Err(_) => {
-                            eprintln!("Error formatting to MMDD");
+                            eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[2]);
                             return Err(());
                         }
                     };
                     let (e_hour, e_minute) = match format_mmdd(&content[2]){
                         Ok(v) => v,
                         Err(_) => {
-                            eprintln!("Error formatting to MMDD 2");
+                            eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[2]);
                             return Err(());
                         }
                     };
@@ -456,11 +486,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         {
                             Ok(_) => {}
                             Err(e) => {
-                                eprintln!("Error with database?: {}", e);
+                                eprintln!("{} Error with Database: {}", ERROR, e);
                                 return Err(());
                             }
                         };
-                    return Ok("200".to_string());
+                    return Ok("201 Created".to_string());
                 }
                 4 => {
                     // POST Subjects - contains id and name
@@ -481,7 +511,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
         }
         Request::Other => {}
     }
-    Ok("Server didn't recognize request.".to_string())
+    Ok("418 I'm teapot".to_string())
 }
 
 fn quick_match<T, E>(statement: Result<T, E>) -> Option<T>{
@@ -530,7 +560,6 @@ fn format_time(time: u32) -> String{
         return format!("{}", time);
     }
 }
-
 async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<String>,u8), ConnectionError> {
     let sliced_input = input.split_whitespace().collect::<Vec<&str>>();
     let (mut request_type,mut content,mut password, mut request_num) : (Request,Vec<String>,Option<String>,u8) = 
@@ -563,7 +592,7 @@ async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<Strin
             } 
         }
         else if word.contains("password=") && password.is_some(){
-            println!("Password was provided more than once!");
+            println!("{} Password was provided more than once!", ERROR);
         }
         else if word.is_empty() == false{
             content.push(word.to_string());
