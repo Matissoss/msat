@@ -25,76 +25,54 @@ pub async fn init() -> Result<(), ()>{
             return Err(());
         }
     };
+    let query = "CREATE TABLE IF NOT EXISTS LessonHours(
+	lesson_num INTEGER PRIMARY KEY,
+	start_time INTEGER NOT NULL,
+	end_time INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS Classes(
+        class_id INTEGER PRIMARY KEY,
+        class_name TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS Lessons(
+        week_day INTEGER NOT NULL,
+	class_id INTEGER NOT NULL,
+	lesson_hour INTEGER NOT NULL,
+	teacher_id INTEGER NOT NULL,
+	subject_id INTEGER NOT NULL,
+	classroom_id INTEGER NOT NULL,
+	PRIMARY KEY (class_id, lesson_hour)
+    );
+    CREATE TABLE IF NOT EXISTS Teachers(
+	teacher_id INTEGER PRIMARY KEY,
+	full_name TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS Classrooms(
+	classroom_id INTEGER PRIMARY KEY,
+	classroom_name TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS Subjects(
+	subject_id INTEGER PRIMARY KEY,
+	subject_name TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS Duties(
+	lesson_hour INTEGER NOT NULL,
+	teacher_id INTEGER NOT NULL,
+	classroom_id INTEGER NOT NULL,
+        week_day INTEGER NOT NULL,
+	PRIMARY KEY (lesson_hour, teacher_id, classroom_id),
+	FOREIGN KEY (teacher_id) REFERENCES Teachers(teacher_id),
+	FOREIGN KEY (classroom_id) REFERENCES Classrooms(classroom_id),
+	FOREIGN KEY (lesson_hour) REFERENCES LessonHours(lesson_num)
+    );";
+    match database.execute(query, []){
+        Ok(_) => {
+            println!("{} Sucessfully Initialized Database", SUCCESS);
+        }
+        Err(_) => {
+            return Err(());
+        }
+    }
     println!("{} Opened database", SUCCESS);
-    match database.execute("CREATE TABLE IF NOT EXISTS lessons (
-    week_day INTEGER NOT NULL,
-    class_id INTEGER NOT NULL,
-    classroom_id INTEGER NOT NULL,
-    subject_id INTEGER NOT NULL,
-    teacher_id INTEGER NOT NULL,
-    lesson_number INTEGER NOT NULL,
-    FOREIGN KEY(subject_id) REFERENCES subjects(id),
-    FOREIGN KEY(class_id) REFERENCES classes(id),
-    FOREIGN KEY(classroom_id) REFERENCES classrooms(id),
-    FOREIGN KEY(teacher_id) REFERENCES teachers(id)
-    );", ()){
-        Ok(_) => {}
-        Err(_) => {return Err(())}
-    };
-    println!("{} Executed creating lessons", SUCCESS);
-    match database.execute("CREATE TABLE IF NOT EXISTS classrooms (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL
-    );", ()){
-        Ok(_) => {}
-        Err(_) => {return Err(())}
-    };
-    println!("{} Executed creating classrooms", SUCCESS);
-    match database.execute("CREATE TABLE IF NOT EXISTS teachers (
-    id INTEGER PRIMARY KEY,
-    first_name TEXT NOT NULL,
-    last_name TEXT NOT NULL
-    );", ()){
-        Ok(_) => {}
-        Err(_) => {return Err(())}
-    };
-    println!("{} Executed creating teachers", SUCCESS);
-    match database.execute("CREATE TABLE IF NOT EXISTS duty (
-    id INTEGER PRIMARY KEY,
-    teacher_id INTEGER NOT NULL,
-    break_number INTEGER NOT NULL,
-    FOREIGN KEY(teacher_id) REFERENCES teachers(id)
-    );", ()){
-        Ok(_) => {}
-        Err(_) => {return Err(())}
-    };
-    println!("{} Executed creating duty", SUCCESS);
-    // date is saved in MMDD format
-    match database.execute("CREATE TABLE IF NOT EXISTS hours (
-    id INTEGER PRIMARY KEY,
-    date TEXT NOT NULL, 
-    start_time TEXT NOT NULL,
-    end_time TEXT NOT NULL
-    );", ()){
-        Ok(_) => {}
-        Err(_) => {return Err(())}
-    };
-    println!("{} Executed creating hours", SUCCESS);
-    match database.execute("CREATE TABLE IF NOT EXISTS classes (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL
-    );", ()){
-        Ok(_) => {}
-        Err(_) => {return Err(())}
-    };
-    println!("{} Executed creating classes", SUCCESS);
-    match database.execute("CREATE TABLE IF NOT EXISTS subjects (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL
-    );", ()){
-        Ok(_) => {}
-        Err(_) => {return Err(())}
-    };
-    println!("{} Executed creating subjects", SUCCESS);
     return Ok(());
 }
