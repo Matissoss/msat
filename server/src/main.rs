@@ -1,16 +1,14 @@
 use core::str;
 use std::{ 
-    fmt::write, future::IntoFuture, io::{
+    io::{
         Read, Write
     }, net::{
         IpAddr, Ipv4Addr, TcpListener, TcpStream
     }
 };
 use std::sync::Arc;
-use std::pin::Pin;
-use std::future::Future;
 use tokio::sync::Mutex;
-use rusqlite::{ffi::sqlite3_rtree_query_info, Connection as SQLite};
+use rusqlite::Connection as SQLite;
 use serde::{Serialize,Deserialize};
 mod database;
 use crate::database as Database;
@@ -96,7 +94,7 @@ impl std::fmt::Display for ConnectionError{
         }
     }
 }
-
+#[derive(Clone)]
 struct ParsedRequest{
     request: Request,
     content: Vec<String>,
@@ -193,12 +191,12 @@ async fn main() {
             }
     };
     println!("Listening on {}:8888", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))));
-    start_listening(listener, Box::pin(database)).await;
+    start_listening(listener, database).await;
     println!("Shutdown?");
     std::process::exit(0);
 }
 
-async fn start_listening(listener: TcpListener, db: Pin<Box<Arc<Mutex<SQLite>>>>){
+async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
     loop{
         for s in listener.incoming(){
             let (mut ip_address, mut port) = (IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),0);
@@ -263,7 +261,7 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
             if parsed_req.request == Request::POST && parsed_req.password.is_none(){
                 return Err(ConnectionError::NoPassword);
             }
-            match get_response(parsed_req, db).await{
+            match get_response(parsed_req.clone(), db).await{
                 Ok(v) => {
                     println!("Server provided response: \"|{}|\"", v);
                     match stream.write_all(v.as_bytes()){
@@ -274,6 +272,9 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
                     }
                 }
                 Err(_) => {
+                    print!("\n---\n{}\n{}\n{}:{}\n---\n",
+                        string_from_vec(parsed_req.content), parsed_req.password.unwrap_or("None".to_string()), parsed_req.request.to_string(),
+                        parsed_req.request_number);
                     return Err(ConnectionError::ResponseError);
                 }
             }
@@ -281,6 +282,15 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
         _ => {}
     }
     Ok(())
+}
+
+
+fn string_from_vec(in_vec: Vec<String>) -> String{
+    let mut finval = String::new();
+    for s in in_vec{
+        finval = format!("{}_{}", finval, s);
+    }
+    finval
 }
 
 async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
@@ -300,15 +310,14 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     };
                     let date : u8 = chrono::Local::now().weekday() as u8;
                     let database = db.lock().await;
-                    let mut prompt = match database.prepare(
-                    &format!("SELECT * FROM Lessons WHERE teacher_id = {} AND week_day = {}", teacher,date)){
+                    let mut prompt = match database.prepare("SELECT * FROM Lessons WHERE teacher_id = ?1 AND week_day = ?2;"){
                         Ok(v) => v,
                         Err(_) => {
                     return Err(());
                         }
                     };
                     // class_id, classroom_id, subject_id, lesson_number
-                    let product_iter = match prompt.query_map([], |row|{
+                    let product_iter = match prompt.query_map([teacher, date], |row|{
                         Ok((
                             quick_match(row.get::<usize,u8>(1)), //class_id,
                             quick_match(row.get::<usize,u8>(5)), // classroom_id,
@@ -347,10 +356,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     let current_time_hhmm = format!("{}{}",
                         format_time(chrono::Local::now().hour()), format_time(chrono::Local::now().minute()));
                     let database1 = db.lock().await;
-                    let mut query = match database1.prepare(&format!("SELECT * FROM LessonHours 
-                            WHERE start_time < CAST({} AS INTEGER) AND 
-                            end_time > CAST({} AS INTEGER)",
-                            current_time_hhmm, current_time_hhmm))
+                    let mut query = match database1.prepare("SELECT * FROM LessonHours 
+                            WHERE start_time < CAST(?1 AS INTEGER) AND 
+                            end_time > CAST(?2 AS INTEGER);")
                     {
                         Ok(v) => v,
                         Err(e) => {
@@ -358,7 +366,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     return Err(());
                         } 
                     };
-                    let stmt = match query.query_map([],|row| {
+                    let stmt = match query.query_map([&current_time_hhmm, &current_time_hhmm],|row| {
                         Ok((
                                 quick_match(row.get::<usize, String>(1)),
                                 quick_match(row.get::<usize, String>(2)),
@@ -407,15 +415,14 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             return Err(());
                         }
                     };
-                    let query = format!("SELECT * FROM Duties 
-                        WHERE lesson_hour = {} AND teacher_id = {} AND week_day = {}",
-                        current_lesson, teacher_id, chrono::Local::now().weekday() as u8);
+                    let query = "SELECT * FROM Duties 
+                        WHERE lesson_hour = ?1 AND teacher_id = ?2 AND week_day = ?3;";
                     let database = db.lock().await;
                     let mut stmt = match database.prepare(&query){
                         Ok(v) => v,
                         Err(_) => return Err(())
                     };
-                    let iter = match stmt.query_map([], |row|{
+                    let iter = match stmt.query_map([current_lesson, teacher_id, chrono::Local::now().weekday() as u8], |row|{
                         Ok(quick_match(row.get::<usize, u8>(2)))
                     }){
                         Ok(v) => v,
@@ -438,9 +445,13 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 4 => {
                     // GET teacher for next duty (bool)
-                    match get_teacher_duty_bool(&parsed_request.content, db).await{
+                    let teacher_id = match parsed_request.content[0].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(_) => return Err(())
+                    };
+                    match get_teacher_duty_bool(teacher_id, db).await{
                         Ok(v) =>{
-                    return Ok(format!("200 OK {}", v));
+                            return Ok(format!("200 OK {}", v));
                         }
                         Err(_) => return Err(())
                     }
@@ -455,15 +466,14 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         Ok(v) => v,
                         Err(_) => return Err(())
                     };
-                    let query = format!("SELECT * FROM Lessons 
-                        WHERE week_day = {} AND lesson_hour = {} AND teacher_id = {}",
-                        chrono::Local::now().weekday() as u8, lesson_hour, teacher_id);
+                    let query ="SELECT * FROM Lessons 
+                        WHERE week_day = ?1 AND lesson_hour = ?2 AND teacher_id = ?3;";
                     let database = db.lock().await;
                     let mut stmt = match database.prepare(&query){
                         Ok(v) => v,
                         Err(_) => return Err(())
                     };
-                    let iter = match stmt.query_map([], |row| {
+                    let iter = match stmt.query_map([chrono::Local::now().weekday() as u8, lesson_hour, teacher_id], |row| {
                         Ok((
                                 // classroom and class
                                 quick_match(row.get::<usize, u8>(5)),
@@ -488,6 +498,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             Err(_) => return Err(())
                         }
                     }
+                    return Ok("204 No Content".to_string())
                 }
                 6 => {
                     // GET lesson hour 
@@ -518,6 +529,16 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         Err(_) => return Err(())
                     }
                 }
+                9 => {
+                    let id = match parsed_request.content[0].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(_) => return Err(())
+                    };
+                    match get_teacher(id, db).await{
+                        Ok(v) => return Ok(format!("200 OK {}", v)),
+                        Err(_) => return Err(())
+                    }
+                }
                 _ => {
                     return Err(());
                 }
@@ -531,92 +552,205 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 1 => {
                     // POST Lesson - contains class, classroom, subject, teacher, lesson number
                     let content = &parsed_request.content;
-                    let (class_id, classroom_id, subject_id, teacher_id, lesson_number) :
-                        (Option<u8>, Option<u8>, Option<u8>, Option<u8>, Option<u8>)= 
-                        (quick_match(content[0].parse()), quick_match(content[1].parse()), quick_match(content[2].parse()),
-                         quick_match(content[3].parse()), quick_match(content[4].parse()));
+                    let (class_id, classroom_id, subject_id, teacher_id, lesson_number, week_day) :
+                        (Option<u8>, Option<u8>, Option<u8>, Option<u8>, Option<u8>, Option<u8>)= 
+                        (quick_match(content[0].parse::<u8>()), quick_match(content[1].parse::<u8>()), quick_match(content[2].parse::<u8>()),
+                         quick_match(content[3].parse::<u8>()), quick_match(content[4].parse::<u8>()),
+                         quick_match(content[5].parse::<u8>()));
                     if class_id.is_some()&classroom_id.is_some()&subject_id.is_some()&teacher_id.is_some()
-                        &lesson_number.is_some() == true
+                        &lesson_number.is_some()&week_day.is_some() == true
                     {
-                        let (u_class, u_classroom, u_subject, u_teacher, u_lesson) = 
+                        let (u_class, u_classroom, u_subject, u_teacher, u_lesson, u_weekday) = 
                             (class_id.unwrap(), classroom_id.unwrap(), subject_id.unwrap(), 
-                             teacher_id.unwrap(), lesson_number.unwrap());
+                             teacher_id.unwrap(), lesson_number.unwrap(), week_day.unwrap());
                         let database = db.lock().await;
-                        match database.execute(&format!("INSERT INTO lessons 
+                        match database.execute("INSERT INTO Lessons 
                             (week_day, class_id, classroom_id, subject_id, teacher_id, lesson_hour) 
-                            VALUES ({},{},{},{},{},{});", 
-                            chrono::Local::now().weekday() as u8, u_class, u_classroom, u_subject, u_teacher, u_lesson), [])
+                            VALUES (?1,?2,?3,?4,?5,?6)
+                            ON CONFLICT (class_id, lesson_hour, week_day) 
+                            DO UPDATE SET classroom_id = excluded.classroom_id, subject_id = excluded.subject_id,
+                            teacher_id = excluded.teacher_id;", 
+                            [u_weekday, u_class, u_classroom, u_subject, u_teacher, u_lesson])
                         {
-                            Ok(_) => {}
+                            Ok(_) => {
+                                return Ok("201 Created".to_string())
+                            }
                             Err(e) => {
-                                eprintln!("Error with database?: {}", e);
+                                eprintln!("Error: {}", e);
                                 return Err(());
                             }
                         };
                     }
                     else{
-                        println!("All of values are none");
                         return Err(());
                     }
-                    return Ok("201 Created".to_string());
                 }
                 2 => {
                     // POST Teacher - contains ID and full name
+                    let id = match parsed_request.content[0].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(e) => {println!("error: {}", e);return Err(())}
+                    };
+                    let name = parsed_request.content[1].as_str();
+                    let last_name = parsed_request.content[2].as_str();
+                    let database = db.lock().await;
+                    match database.execute("INSERT INTO Teachers (teacher_id, first_name, last_name) VALUES (?1, ?2, ?3)
+                        ON CONFLICT (teacher_id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name;", 
+                        [id.to_string().as_str(), name, last_name]){
+                        Ok(_) => {},
+                        Err(_) => return Err(())
+                    };
+                    return Ok("201 Created".to_string());
                 }
                 3 => {
-                    // POST Hours - contains start hour, number and end number
+                    // POST Hours - contains start hour, lesson number and end number
                     let content = &parsed_request.content;
-                    let mut index = 0;
-                    for s in content{
-                        println!("{} : {}", index, s);
-                        index += 1;
-                    }
-                    let date : u16 = match content[0].parse::<u16>(){
+                    let lesson_num : u8 = match content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{} Error parsing: {}", ERROR, e);
-                    return Err(());
+                            return Err(());
                         }
                     };
                     let (s_hour, s_minute) = match format_mmdd(&content[1]){
                         Ok(v) => v,
                         Err(_) => {
                             eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[2]);
-                    return Err(());
+                            return Err(());
                         }
                     };
                     let (e_hour, e_minute) = match format_mmdd(&content[2]){
                         Ok(v) => v,
                         Err(_) => {
                             eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[2]);
-                    return Err(());
+                            return Err(());
                         }
                     };
                         let database = db.lock().await;
-                        match database.execute(&format!("INSERT INTO hours 
-                            (date, start_time, end_time) 
-                            VALUES ({},{},{});", 
-                            date, format_two_digit_time(s_hour, s_minute), format_two_digit_time(e_hour, e_minute)), [])
+                        match database.execute("INSERT INTO LessonHours (lesson_num,start_time, end_time) 
+                            VALUES (?1,?2,?3)
+                            ON CONFLICT(lesson_num) DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time;", 
+                            [lesson_num.to_string(), format_two_digit_time(s_hour, s_minute), 
+                            format_two_digit_time(e_hour, e_minute)])
                         {
                             Ok(_) => {}
                             Err(e) => {
                                 eprintln!("{} Error with Database: {}", ERROR, e);
-                    return Err(());
+                                return Err(());
                             }
                         };
                     return Ok("201 Created".to_string());
                 }
                 4 => {
                     // POST Subjects - contains id and name
+                    let id = match parsed_request.content[0].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(_) => return Err(())
+                    };
+                    let name;
+                    match parsed_request.content[1].as_str(){
+                        "" => return Err(()),
+                        _ => {name = parsed_request.content[1].as_str()}
+                    };
+                    let database = db.lock().await;
+                    match database.execute(&"INSERT INTO Subjects (subject_id, subject_name) VALUES (?1, ?2)
+                        ON CONFLICT (subject_id) DO UPDATE SET subject_name = excluded.subject_name", &[id.to_string().as_str(), name]){
+                        Ok(_) => {},
+                        Err(_) => return Err(())
+                    };
+                    return Ok("201 Created".to_string());
                 }
                 5 => {
                     // POST Classrooms - contains id and name
+                    let id = match parsed_request.content[0].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(_) => return Err(())
+                    };
+                    let name;
+                    match parsed_request.content[1].as_str(){
+                        "" => return Err(()),
+                        _ => {name = parsed_request.content[1].as_str()}
+                    };
+                    let database = db.lock().await;
+                    match database.execute("INSERT INTO Classrooms (classroom_id, classroom_name) VALUES (?1, ?2)
+                        ON CONFLICT (classroom_id) DO UPDATE SET classroom_name = excluded.classroom_name", &[id.to_string().as_str(), name]){
+                        Ok(_) => {},
+                        Err(_) => return Err(())
+                    };
+                    return Ok("201 Created".to_string());
                 }
                 6 => {
-                    // POST Duties - contains teacher id, day (1, 7), and break number
+                    // POST Duties - contains teacher id, classroom_id, day (1, 7), and break number 
+                    let teacher_id = match parsed_request.content[0].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(_) => return Err(())
+                    };
+                    let weekday = match parsed_request.content[1].parse::<u8>(){
+                        Ok(v) => {
+                            if v <= 7 && v > 0{
+                                v
+                            }
+                            else{
+                                return Err(());
+                            }
+                        }
+                        Err(_) => return Err(())
+                    };
+                    let lesson_number = match parsed_request.content[2].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(_) => return Err(())
+                    };
+                    let classroom_id = match parsed_request.content[3].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(_) => return Err(())
+                    };
+                    let database = db.lock().await;
+                    match database.execute("INSERT INTO Duties (lesson_hour, teacher_id, classroom_id, week_day) VALUES (?1, ?2, ?3, ?4)
+                        ON CONFLICT (lesson_hour, teacher_id, week_day) DO UPDATE SET classroom_id = excluded.classroom_id", 
+                        &[lesson_number.to_string().as_str(), teacher_id.to_string().as_str(), classroom_id.to_string().as_str(), weekday.to_string().as_str()]){
+                        Ok(_) => return Ok("201 Created".to_string()),
+                        Err(e) => {
+                            match e{
+                                rusqlite::Error::SqliteFailure(err, _) => {
+                                    if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY{
+                                        return Ok("409 Conflict".to_string());
+                                    }
+                                }
+                                _ => {}
+                            }
+                            return Err(())
+                        }
+                    }
                 }
                 7 => {
                     // POST Classes - contains class number (UNIQUE!) and name
+                    let id = match parsed_request.content[0].parse::<u8>(){
+                        Ok(v) => v,
+                        Err(_) => return Err(())
+                    };
+                    let name;
+                    match parsed_request.content[1].as_str(){
+                        "" => return Err(()),
+                        _ => {name = parsed_request.content[1].as_str()}
+                    };
+                    let database = db.lock().await;
+                    match database.execute("INSERT INTO Classes (class_id, class_name) VALUES (?1, ?2)
+                        ON CONFLICT (class_id) DO UPDATE SET class_name = excluded.class_name", [id.to_string().as_str(), name]){
+                        Ok(_) => {return Ok("201 Created".to_string())},
+                        Err(e) =>{
+                            match e{
+                                rusqlite::Error::SqliteFailure(err, _) => {
+                                    if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY{
+                                        return Ok("409 Conflict".to_string());
+                                    }
+                                }
+                                _ => {
+                                    return Err(());
+                                }
+                            }
+                        }
+                    }
+                    return Ok("201 Created".to_string());
                 }
                 _ => {
                     return Err(());
@@ -652,13 +786,13 @@ fn format_mmdd(input: &str) -> Result<(u8, u8), ()>{
     if input.len() != 4{
         return Err(());
     }
-    let month = match input[0..2].parse::<u8>(){
+    let month = match input[0..1].parse::<u8>(){
         Ok(v) => v,
         Err(_) => {
             return Err(());
         }
     };
-    let day = match input[3..4].parse::<u8>(){
+    let day = match input[2..3].parse::<u8>(){
         Ok(v) => v,
         Err(_) => {
             return Err(());
@@ -702,7 +836,7 @@ async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<Strin
     for word in &sliced_input[3..]{
         if word.contains("password=") && password.is_none(){
             if request_type == Request::POST{
-                password = Some(word[8..].to_string());
+                password = Some(word[9..].to_string());
             } 
         }
         else if word.contains("password=") && password.is_some(){
@@ -720,16 +854,15 @@ async fn get_lesson_hour(db: Arc<Mutex<SQLite>>) -> Result<u8, ()>{
     match now.day().try_into(){Ok(v)=>v,Err(_)=>{return Err(());}});
     let formatted = format_two_digit_time(month, day);
     let database = db.lock().await;
-    let query = format!("SELECT lesson_num FROM LessonHours 
-        WHERE start_time < CAST({} AS INTEGER) AND end_time > CAST({} AS INTEGER)",
-        formatted, formatted);
+    let query = "SELECT * FROM LessonHours 
+        WHERE start_time < CAST(?1 AS INTEGER) AND end_time > CAST(?2 AS INTEGER);";
     let mut stmt = match database.prepare(&query){
         Ok(v) => v,
         Err(_) => {
             return Err(());
         }
     };
-    let result_iter = stmt.query_map([],|row|{
+    let result_iter = stmt.query_map([&formatted, &formatted],|row|{
         Ok(quick_match(row.get::<usize, u8>(0)))
     });
     match result_iter{
@@ -751,59 +884,47 @@ async fn get_lesson_hour(db: Arc<Mutex<SQLite>>) -> Result<u8, ()>{
 
     return Ok(0);
 }
-async fn get_teacher_duty_bool(content: &Vec<String>,db: Arc<Mutex<SQLite>>) -> Result<bool, ()>{
-                    let teacher_id = match content[0].parse::<u8>(){
-                        Ok(v) => {
-                            v
-                        }
-                        Err(_) => {
-                    return Err(());
-                        }
-                    };
+async fn get_teacher_duty_bool(teacher_id: u8,db: Arc<Mutex<SQLite>>) -> Result<bool, ()>{
                     let lesson_hour = match get_lesson_hour(Arc::clone(&db)).await{
                         Ok(v) => v,
                         Err(_) => return Err(())
                     };
                     let database = db.lock().await;
-                    let query = format!("SELECT * FROM Duties 
-                        WHERE teacher_id = {} AND week_day = {} AND lesson_hour = {};",
-                    teacher_id, chrono::Local::now().weekday() as u8, lesson_hour
-                    );
-                    let mut stmt = match database.prepare(&query){
+                    let mut stmt = match database.prepare("SELECT * FROM Duties 
+                        WHERE teacher_id = ?1 AND week_day = ?2 AND lesson_hour = ?3;"){
                         Ok(v) => v,
                         Err(_) => return Err(())
                     };
-                    let iter = match stmt.query_map([], |row|{
+                    let item = match stmt.query_row([teacher_id,chrono::Local::now().weekday() as u8,lesson_hour], |row|{
                         Ok(
                             quick_match(row.get::<usize, u8>(1))
                         )
                     }){
                         Ok(v) => v,
-                        Err(_) => return Err(())
-                    };
-                    for element in iter{
-                        match element{
-                            Ok(v) => {
-                                match v{
-                                    Some(v1) => {
-                                        return Ok(v1 == teacher_id);
-                                    }
-                                    None => {continue;}
+                        Err(e) => {
+                            match e{
+                                rusqlite::Error::QueryReturnedNoRows => {
+                                    return Ok(false);
+                                }
+                                _ => {
+                                    return Err(());
                                 }
                             }
-                            Err(_) => return Err(())
                         }
+                    };
+                    match item{
+                        Some(v) => return Ok(v == teacher_id),
+                        None => return Err(())
                     }
-                    return Err(());
 }
 async fn get_classroom(id: u8,db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
-    let query = format!("SELECT * FROM Classrooms WHERE classroom_id = {}", id);
+    let query = "SELECT * FROM Classrooms WHERE classroom_id = ?1;";
     let database = db.lock().await;
     let mut stmt = match database.prepare(&query){
         Ok(v) => v,
         Err(_) => return Err(())
     };
-    let iter = match stmt.query_map([], |row|{
+    let element = match stmt.query_row([id], |row|{
         Ok(
             quick_match(row.get::<usize, String>(1))
         )
@@ -811,46 +932,48 @@ async fn get_classroom(id: u8,db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
         Ok(v) => v,
         Err(_) => return Err(())
     };
-    for element in iter{
-        match element{
-            Ok(v) => {
-                match v{
-                    Some(v1) => {
-                        return Ok(v1);
-                    }
-                    None => {continue;}
-                }
-            }
-            Err(_) => return Err(())
+    match element{
+        Some(v1) => {
+            return Ok(v1);
         }
+        None => return Err(())
     }
-    return Err(());
 }
 async fn get_class(id: u8, db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
-    let query = format!("SELECT * FROM Classes WHERE class_id = {}", id);
+    let query = "SELECT * FROM Classes WHERE class_id = ?1;";
     let database = db.lock().await;
     let mut stmt = match database.prepare(&query){
         Ok(v) => v,
         Err(_) => return Err(())
     };
-    let iter = match stmt.query_map([], |row|{
+    let element = match stmt.query_row([id], |row|{
         Ok(quick_match(row.get::<usize, String>(1)))
     }){
         Ok(v) => v,
         Err(_) => return Err(())
     };
-    for element in iter{
-        match element{
-            Ok(v) => {
-                match v{
-                    Some(v1) => {
-                        return Ok(v1);
-                    }
-                    None => {continue;}
-                }
-            }
-            Err(_) => return Err(())
-        }
+    match element{
+        Some(v) => return Ok(v),
+        None => return Err(())
     }
-    return Err(());
+}
+async fn get_teacher(id: u8, db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
+    let query = "SELECT * FROM Teachers WHERE teacher_id = ?1;";
+    let database = db.lock().await;
+    let mut stmt = match database.prepare(&query){
+        Ok(v) => v,
+        Err(_) => return Err(())
+    };
+    let element = match stmt.query_row([id], |row|{
+        Ok(
+            quick_match(row.get::<usize, String>(1))
+        )
+    }){
+        Ok(v) => v,
+        Err(_) => return Err(())
+    };
+    match element{
+        Some(v) => return Ok(v),
+        None => return Err(())
+    }
 }
