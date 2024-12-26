@@ -19,8 +19,11 @@ pub async fn get() -> Result<Option<Configuration>, ()>{
                 }
             }
         }
-        Err(e) => {
-            eprintln!("{}", e);
+        Err(_) => {
+            match tokio::fs::write("data/config.toml", toml::to_string(&Configuration::default()).unwrap_or("".to_string())).await{
+                Ok(_) => {}
+                Err(_) => return Err(())
+            }
             Err(())
         }
     }

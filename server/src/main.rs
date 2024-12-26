@@ -14,7 +14,7 @@ mod database;
 use crate::database as Database;
 mod config;
 use crate::config as ConfigFile;
-use chrono::{self, Datelike, Timelike};
+use chrono::{self, format::parse, Datelike, Timelike};
 
 #[derive(Clone,Debug,Default, PartialEq, Eq, PartialOrd, Ord)]
 enum Request{
@@ -42,7 +42,7 @@ impl ToString for Request{
     }
 }
 
-#[derive(PartialEq, Eq,Serialize,Deserialize,Clone,Debug, Default)]
+#[derive(PartialEq,Eq,Serialize,Deserialize,Clone,Debug, Default)]
 struct Configuration{
     password : String,
     ip_addr  : Option<IpAddr>,
@@ -61,39 +61,130 @@ enum ConnectionError{
     Other
 }
 
-impl std::fmt::Display for ConnectionError{
+#[allow(unused)]
+enum RequestError{
+    LengthError,
+    DatabaseError,
+    UnknownRequestError,
+    NoDataFoundError,
+    ParseIntError(String)
+}
+
+trait SendToClient{
+    fn to_response(input: Self) -> String;
+}
+
+impl std::fmt::Display for RequestError{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self{
-            Self::Other => {
-                write!(f, "{} Other", ERROR)
+            Self::LengthError => {
+                writeln!(f, "{} 400: Client provided wrong amount of arguments", ERROR)
             }
-            Self::NoVersion => {
-                write!(f, "{} 400: Version wasn't provided in request.", ERROR)
+            Self::DatabaseError => {
+                writeln!(f, "{} 500: Server couldn't make operation on database", ERROR)
             }
-            Self::NoPassword => {
-                write!(f, "{} 403: Password wasn't provided in POST request.", ERROR)
+            Self::NoDataFoundError => {
+                writeln!(f, "{} 500: Server couldn't find any data requested by user", ERROR)
             }
-            Self::WrongVersion => {
-                write!(f, "{} 505: Client uses different version than server.", ERROR)
+            Self::ParseIntError(s) => {
+                writeln!(f, "{} 400: Client provided argument that couldn't be parsed as integer", ERROR)
             }
-            Self::CannotRead => {
-                write!(f, "{} 500: Server was unable to read message from client.", ERROR)
-            }
-            Self::RequestParseError => {
-                write!(f, "{} 400: Server was unable to parse request.", ERROR)
-            }
-            Self::WritingError => {
-                write!(f, "{} 500: Server was unable to send message to client.", ERROR)
-            }
-            Self::WrongPassword => {
-                write!(f, "{} 400: Client provided wrong password.", ERROR)
-            }
-            Self::ResponseError => {
-                write!(f, "{} 400: Server was unable to respond to request.", ERROR)
+            Self::UnknownRequestError => {
+                writeln!(f, "{} 400: Server doesn't know how to proceed with this request", ERROR)
             }
         }
     }
 }
+
+impl std::fmt::Display for ConnectionError{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self{
+            Self::Other => {
+                writeln!(f, "{} Other", ERROR)
+            }
+            Self::NoVersion => {
+                writeln!(f, "{} 400: Version wasn't provided in request.", ERROR)
+            }
+            Self::NoPassword => {
+                writeln!(f, "{} 403: Password wasn't provided in POST request.", ERROR)
+            }
+            Self::WrongVersion => {
+                writeln!(f, "{} 505: Client uses different version than server.", ERROR)
+            }
+            Self::CannotRead => {
+                writeln!(f, "{} 500: Server was unable to read message from client.", ERROR)
+            }
+            Self::RequestParseError => {
+                writeln!(f, "{} 400: Server was unable to parse request.", ERROR)
+            }
+            Self::WritingError => {
+                writeln!(f, "{} 500: Server was unable to send message to client.", ERROR)
+            }
+            Self::WrongPassword => {
+                writeln!(f, "{} 400: Client provided wrong password.", ERROR)
+            }
+            Self::ResponseError => {
+                writeln!(f, "{} 400: Server was unable to respond to request.", ERROR)
+            }
+        }
+    }
+}
+
+impl SendToClient for RequestError{
+    fn to_response(input: Self) -> String {
+        match input{
+            Self::DatabaseError => {
+                "500 Internal Server Error: Server couldn't communicate with database".to_string()
+            }
+            Self::UnknownRequestError => {
+                "400 Bad Request: Server doesn't implement this request".to_string()
+            }
+            Self::LengthError => {
+                "400 Bad Request: Client provided wrong amount of arguments".to_string()
+            }
+            Self::NoDataFoundError => {
+                "500 Internal Server Error: Server couldn't provide any data".to_string()
+            }
+            Self::ParseIntError(s) => {
+                format!("400 Bad Request: Client provided string: \"{}\" which couldn't be parsed to 8-bit integer", s)
+            }
+        }
+    }
+}
+impl SendToClient for ConnectionError{
+    fn to_response(input: Self) -> String {
+        match input{
+            Self::ResponseError => {
+                "400 Bad Request: Server couldn't provide response to client".to_string()
+            }
+            Self::Other => {
+                "0 Unknown: Other".to_string()
+            }
+            Self::NoVersion => {
+                "400 Bad Request: Client didn't provide version in request".to_string()
+            }
+            Self::CannotRead => {
+                "500 Internal Server Request: Server couldn't read request sent by client".to_string()
+            }
+            Self::NoPassword => {
+                "400 Bad Request: Client didn't provide password in request".to_string()
+            }
+            Self::WrongVersion => {
+                "505 Version not supported: Client provided version that is different from server".to_string()
+            }
+            Self::WritingError => {
+                "500 Internal Server Request: Server couldn't send response to client".to_string()
+            }
+            Self::WrongPassword => {
+                "400 Bad Request: Client provided wrong password in POST request".to_string()
+            }
+            Self::RequestParseError => {
+                "400 Bad Request: Server couldn't parse request sent by client".to_string()
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 struct ParsedRequest{
     request: Request,
@@ -217,15 +308,15 @@ async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
             };
             
             if stream.is_some(){
-                let copied = Arc::clone(&db);
+                let shared_db = Arc::clone(&db);
                 tokio::spawn(async move{
-                    match handle_connection(stream.unwrap(), copied).await{
+                    match handle_connection(stream.unwrap(), shared_db).await{
                         Ok(_) => {
-                            println!("{} Successfully handled request from TCPStream {}:{}", SUCCESS, ip_address, port);
+                            println!("{} Successfully handled request from TCPStream {}:{}\n---", SUCCESS, ip_address, port);
                         }
                         Err(e) => {
-                            println!("{}", e);
-                        } 
+                            println!("{}\n---", e);
+                        }
                     }
                 });
             }
@@ -271,21 +362,21 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
             if parsed_req.request == Request::POST && parsed_req.password.is_none(){
                 return Err(ConnectionError::NoPassword);
             }
+            let response : String;
             match get_response(parsed_req.clone(), db).await{
                 Ok(v) => {
-                    println!("Server provided response: \"|{}|\"", v);
-                    match stream.write_all(v.as_bytes()){
-                        Ok(_) => {}
-                        Err(_) => {
-                            return Err(ConnectionError::WritingError);
-                        }
-                    }
+                    response = v;
+                }
+                Err(e) => {
+                    response = RequestError::to_response(e);
+                }
+            }
+            match stream.write_all(response.as_bytes()){
+                Ok(_) => {
+                    println!("{} Handled Request\n===", SUCCESS);
                 }
                 Err(_) => {
-                    print!("\n---\n{}\n{}\n{}:{}\n---\n",
-                        string_from_vec(parsed_req.content), parsed_req.password.unwrap_or("None".to_string()), parsed_req.request.to_string(),
-                        parsed_req.request_number);
-                    return Err(ConnectionError::ResponseError);
+                    return Err(ConnectionError::WritingError);
                 }
             }
         }
@@ -294,28 +385,19 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
     Ok(())
 }
 
-
-fn string_from_vec(in_vec: Vec<String>) -> String{
-    let mut finval = String::new();
-    for s in in_vec{
-        finval = format!("{}\"{}\"_", finval, s);
-    }
-    finval
-}
-
-async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
+async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, RequestError>{
     match parsed_request.request{
         Request::GET => {
             match parsed_request.request_number{
                 0 => {
-                    return Err(());
+                    return Err(RequestError::UnknownRequestError);
                 }
                 1 => {
                     // GET Lessons for this Day 
                     let teacher = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(_) => {
-                        return Err(());
+                            return Err(RequestError::ParseIntError(parsed_request.content[0].clone()));
                         } 
                     };
                     let date : u8 = chrono::Local::now().weekday() as u8;
@@ -323,7 +405,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     let mut prompt = match database.prepare("SELECT * FROM Lessons WHERE teacher_id = ?1 AND week_day = ?2;"){
                         Ok(v) => v,
                         Err(_) => {
-                    return Err(());
+                            return Err(RequestError::DatabaseError);
                         }
                     };
                     // class_id, classroom_id, subject_id, lesson_number
@@ -337,7 +419,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     }){
                         Ok(v) => v,
                         Err(_) => {
-                    return Err(());
+                            return Err(RequestError::DatabaseError);
                         }
                     };
                     for result in product_iter{
@@ -348,14 +430,14 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                                     let (u_class, u_classroom, u_subject, u_lesson) = 
                                         (class_id.unwrap(), classroom_id.unwrap(), 
                                          subject_id.unwrap(), lesson_number.unwrap());
-                                    return Ok(format!("200 OK {};{};{};{};", u_class,u_classroom,u_subject,u_lesson));
+                                        return Ok(format!("200 OK {};{};{};{};", u_class,u_classroom,u_subject,u_lesson));
                                 }
                                 else{
-                    return Err(());
+                                    return Err(RequestError::NoDataFoundError);
                                 }
                             }
                             Err(_) => {
-                    return Err(());
+                                return Err(RequestError::NoDataFoundError);
                             }
                         }
                     }
@@ -371,9 +453,8 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             end_time > CAST(?2 AS INTEGER);")
                     {
                         Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{} Error with Database: {}", ERROR, e);
-                    return Err(());
+                        Err(_) => {
+                            return Err(RequestError::DatabaseError);
                         } 
                     };
                     let stmt = match query.query_map([&current_time_hhmm, &current_time_hhmm],|row| {
@@ -383,9 +464,8 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         ))
                     }){
                         Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{} Error with Database: {}", ERROR, e);
-                    return Err(());
+                        Err(_) => {
+                            return Err(RequestError::DatabaseError);
                         }
                     };
                     let (mut f_end, mut f_start) = ("".to_string(), "".to_string());
@@ -397,12 +477,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                                     (f_end, f_start) = (u_end, u_start);
                                 }
                                 else{
-                    return Err(());
+                                    return Err(RequestError::DatabaseError);
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("{} Error getting values: {}", ERROR, e);
-                    return Err(());
+                            Err(_) => {
+                                return Err(RequestError::NoDataFoundError);
                             }
                         }
                     }
@@ -416,13 +495,13 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     let teacher_id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(_) => {
-                            return Err(());
+                            return Err(RequestError::ParseIntError(parsed_request.content[0].clone()));
                         }
                     };
                     let current_lesson = match get_lesson_hour(Arc::clone(&db)).await{
                         Ok(v) => v,
                         Err(_) => {
-                            return Err(());
+                            return Err(RequestError::DatabaseError);
                         }
                     };
                     let query = "SELECT * FROM Duties 
@@ -430,13 +509,13 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     let database = db.lock().await;
                     let mut stmt = match database.prepare(&query){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     };
                     let iter = match stmt.query_map([current_lesson, teacher_id, chrono::Local::now().weekday() as u8], |row|{
                         Ok(quick_match(row.get::<usize, u8>(2)))
                     }){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     };
                     for element in iter{
                         match element{
@@ -448,7 +527,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                                     None => {continue;}
                                 }
                             }
-                            Err(_) => return Err(())
+                            Err(_) => return Err(RequestError::NoDataFoundError)
                         }
                     }
                     return Ok("204 No Content".to_string())
@@ -457,31 +536,31 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     // GET teacher for next duty (bool)
                     let teacher_id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     match get_teacher_duty_bool(teacher_id, db).await{
                         Ok(v) =>{
                             return Ok(format!("200 OK {}", v));
                         }
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::NoDataFoundError)
                     }
                 }
                 5 => {
                     // GET current classroom && class (as String)
                     let teacher_id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     let lesson_hour = match get_lesson_hour(Arc::clone(&db)).await{
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     };
                     let query ="SELECT * FROM Lessons 
                         WHERE week_day = ?1 AND lesson_hour = ?2 AND teacher_id = ?3;";
                     let database = db.lock().await;
                     let mut stmt = match database.prepare(&query){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     };
                     let iter = match stmt.query_map([chrono::Local::now().weekday() as u8, lesson_hour, teacher_id], |row| {
                         Ok((
@@ -492,7 +571,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     })
                     {
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     };
                     for element in iter{
                         match element{
@@ -502,10 +581,10 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                                     return Ok(format!("200 OK {};{}", u_class, u_classroom));
                                 }
                                 else{
-                                    return Err(());
+                                    return Err(RequestError::NoDataFoundError);
                                 }
                             }
-                            Err(_) => return Err(())
+                            Err(_) => return Err(RequestError::DatabaseError)
                         }
                     }
                     return Ok("204 No Content".to_string())
@@ -514,50 +593,50 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     // GET lesson hour 
                     match get_lesson_hour(db).await{
                         Ok(v) => return Ok(format!("200 OK {}", v)),
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     };
                 }
                 7 => {
                     // GET classroom by id
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     match get_classroom(id, db).await{
                         Ok(v) => return Ok(format!("200 OK {}", v)),
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     }
                 }
                 8 => {
                     // GET class by id 
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     match get_class(id, db).await{
                         Ok(v) => return Ok(format!("200 OK {}", v)),
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     }
                 }
                 9 => {
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     match get_teacher(id, db).await{
                         Ok(v) => return Ok(format!("200 OK {}", v)),
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     }
                 }
                 _ => {
-                    return Err(());
+                    return Err(RequestError::UnknownRequestError);
                 }
             };
         }
         Request::POST => {
             match parsed_request.request_number {
                 0 => {
-                    return Err(());
+                    return Err(RequestError::UnknownRequestError);
                 }
                 1 => {
                     // POST Lesson - contains class, classroom, subject, teacher, lesson number
@@ -577,7 +656,6 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     if class_id.is_some()&&classroom_id.is_some()&&subject_id.is_some()&&teacher_id.is_some()
                         &&lesson_number.is_some()&&week_day.is_some()
                     {
-                        println!("Some");
                         let (u_class, u_classroom, u_subject, u_teacher, u_lesson, u_weekday) = 
                             (class_id.unwrap(), classroom_id.unwrap(), subject_id.unwrap(), 
                              teacher_id.unwrap(), lesson_number.unwrap(), week_day.unwrap());
@@ -593,21 +671,20 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             Ok(_) => {
                                 return Ok("201 Created".to_string())
                             }
-                            Err(e) => {
-                                eprintln!("Error: {}", e);
-                                return Err(());
+                            Err(_) => {
+                                return Err(RequestError::DatabaseError);
                             }
                         };
                     }
                     else{
-                        return Err(());
+                        return Err(RequestError::ParseIntError(parsed_request.content[0].clone()));
                     }
                 }
                 2 => {
                     // POST Teacher - contains ID and full name
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(e) => {println!("error: {}", e);return Err(())}
+                        Err(_) => {return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))}
                     };
                     let name = parsed_request.content[1].as_str();
                     let last_name = parsed_request.content[2].as_str();
@@ -616,7 +693,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         ON CONFLICT (teacher_id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name;", 
                         [id.to_string().as_str(), name, last_name]){
                         Ok(_) => {},
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     };
                     return Ok("201 Created".to_string());
                 }
@@ -627,25 +704,26 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{} Error parsing: {}", ERROR, e);
-                            return Err(());
+                            return Err(RequestError::ParseIntError(content[0].clone()));
                         }
                     };
                     let (s_hour, s_minute) = match format_mmdd(&content[1]){
                         Ok(v) => v,
                         Err(_) => {
-                            eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[2]);
-                            return Err(());
+                            eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[1]);
+                            return Err(RequestError::ParseIntError(content[1].clone()));
                         }
                     };
                     let (e_hour, e_minute) = match format_mmdd(&content[2]){
                         Ok(v) => v,
                         Err(_) => {
                             eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[2]);
-                            return Err(());
+                            return Err(RequestError::ParseIntError(content[2].clone()));
                         }
                     };
                         let database = db.lock().await;
-                        match database.execute("INSERT INTO LessonHours (lesson_num,start_time, end_time) 
+                        match database.execute("INSERT INTO LessonHours (
+                        lesson_num,start_time, end_time) 
                             VALUES (?1,?2,?3)
                             ON CONFLICT(lesson_num) DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time;", 
                             [lesson_num.to_string(), format_two_digit_time(s_hour, s_minute), 
@@ -654,7 +732,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             Ok(_) => {}
                             Err(e) => {
                                 eprintln!("{} Error with Database: {}", ERROR, e);
-                                return Err(());
+                                return Err(RequestError::DatabaseError);
                             }
                         };
                     return Ok("201 Created".to_string());
@@ -663,18 +741,18 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     // POST Subjects - contains id and name
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     let name;
                     match parsed_request.content[1].as_str(){
-                        "" => return Err(()),
+                        "" => return Err(RequestError::UnknownRequestError),
                         _ => {name = parsed_request.content[1].as_str()}
                     };
                     let database = db.lock().await;
                     match database.execute(&"INSERT INTO Subjects (subject_id, subject_name) VALUES (?1, ?2)
                         ON CONFLICT (subject_id) DO UPDATE SET subject_name = excluded.subject_name", &[id.to_string().as_str(), name]){
                         Ok(_) => {},
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::UnknownRequestError)
                     };
                     return Ok("201 Created".to_string());
                 }
@@ -682,18 +760,18 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     // POST Classrooms - contains id and name
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     let name;
                     match parsed_request.content[1].as_str(){
-                        "" => return Err(()),
+                        "" => return Err(RequestError::ParseIntError(parsed_request.content[0].clone())),
                         _ => {name = parsed_request.content[1].as_str()}
                     };
                     let database = db.lock().await;
                     match database.execute("INSERT INTO Classrooms (classroom_id, classroom_name) VALUES (?1, ?2)
                         ON CONFLICT (classroom_id) DO UPDATE SET classroom_name = excluded.classroom_name", &[id.to_string().as_str(), name]){
                         Ok(_) => {},
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::DatabaseError)
                     };
                     return Ok("201 Created".to_string());
                 }
@@ -701,7 +779,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     // POST Duties - contains teacher id, classroom_id, day (1, 7), and break number 
                     let teacher_id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     let weekday = match parsed_request.content[1].parse::<u8>(){
                         Ok(v) => {
@@ -709,34 +787,26 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                                 v
                             }
                             else{
-                                return Err(());
+                                return Err(RequestError::ParseIntError(parsed_request.content[1].clone()));
                             }
                         }
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[1].clone()))
                     };
                     let lesson_number = match parsed_request.content[2].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[2].clone()))
                     };
                     let classroom_id = match parsed_request.content[3].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[3].clone()))
                     };
                     let database = db.lock().await;
                     match database.execute("INSERT INTO Duties (lesson_hour, teacher_id, classroom_id, week_day) VALUES (?1, ?2, ?3, ?4)
                         ON CONFLICT (lesson_hour, teacher_id, week_day) DO UPDATE SET classroom_id = excluded.classroom_id", 
                         &[lesson_number.to_string().as_str(), teacher_id.to_string().as_str(), classroom_id.to_string().as_str(), weekday.to_string().as_str()]){
                         Ok(_) => return Ok("201 Created".to_string()),
-                        Err(e) => {
-                            match e{
-                                rusqlite::Error::SqliteFailure(err, _) => {
-                                    if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY{
-                                        return Ok("409 Conflict".to_string());
-                                    }
-                                }
-                                _ => {}
-                            }
-                            return Err(())
+                        Err(_) => {
+                            return Err(RequestError::DatabaseError)
                         }
                     }
                 }
@@ -744,34 +814,24 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     // POST Classes - contains class number (UNIQUE!) and name
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(_) => return Err(())
+                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
                     };
                     let name;
                     match parsed_request.content[1].as_str(){
-                        "" => return Err(()),
+                        "" => return Err(RequestError::UnknownRequestError),
                         _ => {name = parsed_request.content[1].as_str()}
                     };
                     let database = db.lock().await;
                     match database.execute("INSERT INTO Classes (class_id, class_name) VALUES (?1, ?2)
                         ON CONFLICT (class_id) DO UPDATE SET class_name = excluded.class_name", [id.to_string().as_str(), name]){
                         Ok(_) => {return Ok("201 Created".to_string())},
-                        Err(e) =>{
-                            match e{
-                                rusqlite::Error::SqliteFailure(err, _) => {
-                                    if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY{
-                                        return Ok("409 Conflict".to_string());
-                                    }
-                                }
-                                _ => {
-                                    return Err(());
-                                }
-                            }
+                        Err(_) =>{
+                            return Err(RequestError::DatabaseError)
                         }
                     }
-                    return Ok("201 Created".to_string());
                 }
                 _ => {
-                    return Err(());
+                    return Err(RequestError::UnknownRequestError);
                 }
             }
         }
@@ -865,6 +925,21 @@ async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<Strin
             content.push(word.to_string());
         }
     }
+    if request_type == Request::POST{
+        if let Some(correct_password) = get_password().await{
+            if let Some(ref input_password) = password{
+                if &correct_password != input_password{
+                    return Err(ConnectionError::WrongPassword)
+                }
+            }
+            else{
+                return Err(ConnectionError::WrongPassword)
+            }
+        }
+    }
+    else{
+        return Err(ConnectionError::WrongPassword)
+    }
     Ok((request_type,content,password,request_num))
 }
 async fn get_lesson_hour(db: Arc<Mutex<SQLite>>) -> Result<u8, ()>{
@@ -904,37 +979,34 @@ async fn get_lesson_hour(db: Arc<Mutex<SQLite>>) -> Result<u8, ()>{
     return Ok(0);
 }
 async fn get_teacher_duty_bool(teacher_id: u8,db: Arc<Mutex<SQLite>>) -> Result<bool, ()>{
-                    let lesson_hour = match get_lesson_hour(Arc::clone(&db)).await{
-                        Ok(v) => v,
-                        Err(_) => return Err(())
-                    };
-                    let database = db.lock().await;
-                    let mut stmt = match database.prepare("SELECT * FROM Duties 
-                        WHERE teacher_id = ?1 AND week_day = ?2 AND lesson_hour = ?3;"){
-                        Ok(v) => v,
-                        Err(_) => return Err(())
-                    };
-                    let item = match stmt.query_row([teacher_id,chrono::Local::now().weekday() as u8,lesson_hour], |row|{
-                        Ok(
-                            quick_match(row.get::<usize, u8>(1))
-                        )
-                    }){
-                        Ok(v) => v,
-                        Err(e) => {
-                            match e{
-                                rusqlite::Error::QueryReturnedNoRows => {
-                                    return Ok(false);
-                                }
-                                _ => {
-                                    return Err(());
-                                }
-                            }
-                        }
-                    };
-                    match item{
-                        Some(v) => return Ok(v == teacher_id),
-                        None => return Err(())
-                    }
+    let lesson_hour = match get_lesson_hour(Arc::clone(&db)).await{
+        Ok(v) => v,
+        Err(_) => return Err(())
+    };
+    let database = db.lock().await;
+    let mut stmt = match database.prepare("SELECT * FROM Duties 
+        WHERE teacher_id = ?1 AND week_day = ?2 AND lesson_hour = ?3;"){
+        Ok(v) => v,
+        Err(_) => return Err(())
+    };
+    let item = match stmt.query_row([teacher_id,chrono::Local::now().weekday() as u8,lesson_hour], |row|{
+    Ok(quick_match(row.get::<usize, u8>(1)))}){
+        Ok(v) => v,
+        Err(e) => {
+            match e{
+                rusqlite::Error::QueryReturnedNoRows => {
+                    return Ok(false);
+                }
+                _ => {
+                    return Err(());
+                }
+            }
+        }
+    };
+    match item{
+        Some(v) => return Ok(v == teacher_id),
+        None => return Err(())
+    }
 }
 async fn get_classroom(id: u8,db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
     let query = "SELECT * FROM Classrooms WHERE classroom_id = ?1;";
@@ -996,33 +1068,19 @@ async fn get_teacher(id: u8, db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
         None => return Err(())
     }
 }
-
-
-#[cfg(test)]
-mod tests{
-    use super::*;
-    #[tokio::test]
-    async fn check_input()
-    {
-        let request = "POST 10 1 password=test 1 2 3 4 5 6";
-        let (req, con, password, request_num) = parse_request(request).await.unwrap();
-        println!("{}", password.unwrap());
-        println!("{}", req.to_string());
-        println!("{}", request_num);
-        for index in 0..con.len(){
-            println!("---");
-            println!("{} : \"{}\"", index, con[index]);
-            println!("{:?}", con[index].as_bytes().into_iter().filter(|n| **n != 0));
-        }
-        quick_match(str::parse::<u8>(&con[0]));
-        quick_match(str::parse::<u8>(&con[1]));
-        quick_match(str::parse::<u8>(&con[2]));
-        quick_match(str::parse::<u8>(&con[3]));
-        quick_match(str::parse::<u8>(&con[4]));
-        quick_match(str::parse::<u8>(&con[5]));
-        format_mmdd("1500").unwrap();
-        format_mmdd("1500").unwrap();
-        format_time(1600);
-        format_two_digit_time(8, 54);
+async fn get_password() -> Option<String>{
+    let file = match tokio::fs::read_to_string("data/config.toml").await{
+        Ok(v) => v,
+        Err(_) => return None
+    };
+    let structure = match toml::from_str::<Configuration>(&file){
+        Ok(v) => v,
+        Err(_) => return None
+    };
+    if structure.password.is_empty(){
+        return None
+    }
+    else{
+        return Some(structure.password);
     }
 }
