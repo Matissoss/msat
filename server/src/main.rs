@@ -242,7 +242,17 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
         Ok(_) => {}
         Err(_) => {return Err(ConnectionError::CannotRead);}
     };
-    let parsed_req : ParsedRequest = ParsedRequest::from(match parse_request(&String::from_utf8_lossy(&data_sent)).await{
+    let string = match String::from_utf8(data_sent.to_vec()){
+        Ok(n) => {
+            println!("\"{}\"", n);
+            n
+        },
+        Err(e) => {
+            eprintln!("{}", e);
+            "".to_string()
+        }
+    };
+    let parsed_req : ParsedRequest = ParsedRequest::from(match parse_request(&string).await{
         Ok(v) => v,
         Err(e) => {
             return Err(e);
@@ -288,7 +298,7 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
 fn string_from_vec(in_vec: Vec<String>) -> String{
     let mut finval = String::new();
     for s in in_vec{
-        finval = format!("{}_{}", finval, s);
+        finval = format!("{}\"{}\"_", finval, s);
     }
     finval
 }
@@ -305,7 +315,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     let teacher = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(_) => {
-                    return Err(());
+                        return Err(());
                         } 
                     };
                     let date : u8 = chrono::Local::now().weekday() as u8;
@@ -551,15 +561,23 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 1 => {
                     // POST Lesson - contains class, classroom, subject, teacher, lesson number
-                    let content = &parsed_request.content;
                     let (class_id, classroom_id, subject_id, teacher_id, lesson_number, week_day) :
                         (Option<u8>, Option<u8>, Option<u8>, Option<u8>, Option<u8>, Option<u8>)= 
-                        (quick_match(content[0].parse::<u8>()), quick_match(content[1].parse::<u8>()), quick_match(content[2].parse::<u8>()),
-                         quick_match(content[3].parse::<u8>()), quick_match(content[4].parse::<u8>()),
-                         quick_match(content[5].parse::<u8>()));
-                    if class_id.is_some()&classroom_id.is_some()&subject_id.is_some()&teacher_id.is_some()
-                        &lesson_number.is_some()&week_day.is_some() == true
+                    (
+                        quick_match(str::parse::<u8>(&parsed_request.content[0].trim())), 
+                        quick_match(str::parse::<u8>(&parsed_request.content[1].trim())), 
+                        quick_match(str::parse::<u8>(&parsed_request.content[2].trim())), 
+                        quick_match(str::parse::<u8>(&parsed_request.content[3].trim())), 
+                        quick_match(str::parse::<u8>(&parsed_request.content[4].trim())), 
+                        quick_match(str::parse::<u8>(&parsed_request.content[5].trim()))
+                    );
+                    for index in 0..parsed_request.content.len(){
+                        println!("{} : {}", index, parsed_request.content[index]);
+                    }
+                    if class_id.is_some()&&classroom_id.is_some()&&subject_id.is_some()&&teacher_id.is_some()
+                        &&lesson_number.is_some()&&week_day.is_some()
                     {
+                        println!("Some");
                         let (u_class, u_classroom, u_subject, u_teacher, u_lesson, u_weekday) = 
                             (class_id.unwrap(), classroom_id.unwrap(), subject_id.unwrap(), 
                              teacher_id.unwrap(), lesson_number.unwrap(), week_day.unwrap());
@@ -762,10 +780,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
     Ok("418 I'm teapot".to_string())
 }
 
-fn quick_match<T, E>(statement: Result<T, E>) -> Option<T>{
+fn quick_match<T, E>(statement: Result<T, E>) -> Option<T>
+where T: std::fmt::Display, E: std::fmt::Display{
     match statement{
-        Ok(v) => {return Some(v);},
-        Err(_) => {return None;}
+        Ok(v) => {println!("Value of quick_match: {}", v);return Some(v);},
+        Err(e) => {eprintln!("Error from quick_match: {}", e);return None;}
     }
 }
 fn format_two_digit_time(time1: u8, time2: u8) -> String{
@@ -975,5 +994,35 @@ async fn get_teacher(id: u8, db: Arc<Mutex<SQLite>>) -> Result<String, ()>{
     match element{
         Some(v) => return Ok(v),
         None => return Err(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    #[tokio::test]
+    async fn check_input()
+    {
+        let request = "POST 10 1 password=test 1 2 3 4 5 6";
+        let (req, con, password, request_num) = parse_request(request).await.unwrap();
+        println!("{}", password.unwrap());
+        println!("{}", req.to_string());
+        println!("{}", request_num);
+        for index in 0..con.len(){
+            println!("---");
+            println!("{} : \"{}\"", index, con[index]);
+            println!("{:?}", con[index].as_bytes().into_iter().filter(|n| **n != 0));
+        }
+        quick_match(str::parse::<u8>(&con[0]));
+        quick_match(str::parse::<u8>(&con[1]));
+        quick_match(str::parse::<u8>(&con[2]));
+        quick_match(str::parse::<u8>(&con[3]));
+        quick_match(str::parse::<u8>(&con[4]));
+        quick_match(str::parse::<u8>(&con[5]));
+        format_mmdd("1500").unwrap();
+        format_mmdd("1500").unwrap();
+        format_time(1600);
+        format_two_digit_time(8, 54);
     }
 }
