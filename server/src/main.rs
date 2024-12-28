@@ -15,6 +15,7 @@ use crate::database as Database;
 mod config;
 use crate::config as ConfigFile;
 use chrono::{self, format::parse, Datelike, Timelike};
+use http_server as mhs;
 
 #[derive(Clone,Debug,Default, PartialEq, Eq, PartialOrd, Ord)]
 enum Request{
@@ -281,6 +282,7 @@ async fn main() {
                 std::process::exit(-1);
             }
     };
+    mhs::init(ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1])))).await;
     println!("Listening on {}:8888", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))));
     start_listening(listener, database).await;
     println!("Shutdown?");
