@@ -18,7 +18,11 @@
 
 # LICENSE
 
-**msat** is licensed under Apache License 2.0 - [LICENSE](LICENSE)
+**msat** can be licensed under two of following licenses: 
+MPL (Mozilla Public License) and Apache 2.0 depending on your requirements. 
+Recommended License is **MPL**
+
+[APACHE](LICENSE-APACHE) [MPL](LICENSE-MPL)
 
 # Documentation
 
