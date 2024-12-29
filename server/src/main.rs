@@ -8,14 +8,13 @@ use std::{
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use rusqlite::Connection as SQLite;
+use rusqlite::{Connection as SQLite, OpenFlags};
 use serde::{Serialize,Deserialize};
 mod database;
 use crate::database as Database;
 mod config;
 use crate::config as ConfigFile;
-use chrono::{self, format::parse, Datelike, Timelike};
-use http_server as mhs;
+use chrono::{self, Datelike, Timelike};
 
 #[derive(Clone,Debug,Default, PartialEq, Eq, PartialOrd, Ord)]
 enum Request{
@@ -229,7 +228,8 @@ async fn main() {
             std::process::exit(-1);
         }
     }
-    let database : Arc<Mutex<SQLite>> = Arc::new(Mutex::new(match SQLite::open("data/database.db"){
+    let database : Arc<Mutex<SQLite>> = Arc::new(Mutex::new(match SQLite::open_with_flags("data/database.db",
+                OpenFlags::SQLITE_OPEN_CREATE|OpenFlags::SQLITE_OPEN_READ_WRITE|OpenFlags::SQLITE_OPEN_FULL_MUTEX){
         Ok(v) => v,
         Err(e) => {
             eprintln!("{} Error opening database: {}", ERROR,e);
@@ -282,7 +282,6 @@ async fn main() {
                 std::process::exit(-1);
             }
     };
-    mhs::init(ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1])))).await;
     println!("Listening on {}:8888", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))));
     start_listening(listener, database).await;
     println!("Shutdown?");

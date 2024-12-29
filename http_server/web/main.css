@@ -2,3 +2,39 @@ body{
 	background-color: black;
 	color: white;
 }
+db_col{
+	display: flex;
+	flex-direction: column;
+}
+db_row{
+	display: flex;
+	flex-direction: row;
+}
+db_row p{
+	margin: auto;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	width: 20vw;
+	height: 5vh;
+	text-align: center;
+	border: solid 0.125vw white;
+}
+h1 {text-align: center;}
+#lang{
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	margin: auto;
+}
+#lang select{
+	text-align: center;
+}
+#data{
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+}
+.non-visible{
+	display: none;
+}

@@ -1,12 +1,32 @@
 <!DOCTYPE html>
 <html>
 	<head>
+		<meta charset="UTF-8">
 		<link href="main.css" rel="stylesheet">
 	</head>
 	<body>
-		<img src="Avatar.png">
-		<h1>Witam</h1>
-		<p>Hello Wordl</p>
+		<h1 id="title">msat dashboard</h1>
+		<fieldset>
+		<legend>Ustawienia</legend>
+		<form id="lang">
+			<select name="lang">
+				<option value="pl">Polski</option>
+				<option value="en">English</option>
+			</select>
+			<button>Zmień Język/Change Language</button>
+		</form>
+		</fieldset>
+		<hr>
+		<fieldset>
+		<legend>Dane wejściowe</legend>
+		<form id="data">
+			<select name="method" id="input">
+			</select>
+			<input type=text name="args" id="input_args" class="non-visible">
+			<button>Submit</button>
+		</form>
+		</fieldset>
+		<div id="response"></div>
 		<script src="main.js"></script>
 	</body>
 </html>
