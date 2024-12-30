@@ -18,26 +18,36 @@ $("data").addEventListener('submit', async function (e) {
     .then(response => response.text()) 
     .then(result => {
 	    $("response").innerHTML = result;
+	    $("input_args").value = "";
+	    set_width();
+    })
+    .catch(() => {
+	    $("response").innerHTML = "<db_col><db_row><p>Server didn't send any data. Check if your request is correct</p><p>Serwer nie wysłał żadnych informacji. Sprawdź czy twoje zapytanie jest poprawne.</p></db_row></db_col>";
+	    set_width();
+    });
+})
+
+function set_width(){
 	    let width = 100 / $("response").children[0].children[0].childElementCount;
 	    for (let i = 0; i < $("response").children[0].childElementCount; i++){
 		    for(let j = 0; j < $("response").children[0].children[i].childElementCount; j++){
 		    	$("response").children[0].children[i].children[j].style.width = `${width}vw`
 		    }
 	    }
-    })
-    .catch(error => console.error('Błąd:', error));
-})
+}
 
 $("input").addEventListener('change', (e) => {
 	let data = e.target.value;
 	if (data.includes("GET")){
 		$("input_args").className = "non-visible"
 		$("input_text").className = "non-visible";
+		$("input_password").className = "non-visible";
 	}
 	else
 	{
 		$("input_text").className = "";
 		$("input_args").className = "";
+		$("input_password").className = "";
 		if (data.includes("1")){
 			if (language == "pl"){
 			$("input_text").innerHTML = 

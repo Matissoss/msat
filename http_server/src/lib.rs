@@ -1,13 +1,13 @@
 use std::{
-    clone, io::{Read, Write}, net::{IpAddr, Ipv4Addr, TcpListener, TcpStream}, str::FromStr, sync::Arc
+    io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, str::FromStr, sync::Arc
 };
 
 const SUCCESS : &str = "HTTP_SERVER: [     OK     ]";
 const ERROR   : &str = "HTTP_SERVER: [    ERROR   ]";
 
-use tokio::{fs, sync::Mutex};
-use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use rusqlite::{self, OpenFlags};
+use serde::{Deserialize, Serialize};
 use toml;
 
 struct Lesson{
@@ -48,6 +48,7 @@ struct Duty{
 }
 
 #[tokio::main]
+#[allow(warnings)]
 async fn main(){
     init(IpAddr::from_str("127.0.0.1").unwrap()).await;
 }
@@ -64,7 +65,6 @@ pub async fn init(ip_addr: IpAddr) {
             }
     ));
     let final_address = format!("{}:8000", ip_addr.to_string());
-    let shared_ipaddr = Arc::new(ip_addr);
     let listener: TcpListener = match TcpListener::bind(final_address) {
         Ok(v) => v,
         Err(_) => std::process::exit(-1),
@@ -189,6 +189,7 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
     let mut request_type = "".to_string();
     let mut args : Vec<String> = vec![];
     let mut request_number = 0;
+    let mut password : String = "".to_string();
     let req_split = split_string_by(&request, '&');
 
     for s in req_split{
@@ -205,8 +206,29 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                 request_number = v;
             }
         }
+        else if s.starts_with("password="){
+            println!("{}", s);
+            let req_args = split_string_by(&s, '=');
+            if req_args.len() <= 1 {
+                if request_type == "POST"{
+                    return "<db_col><db_row><p>Brak Hasła/No Password</p></db_row></db_col>".to_string();
+                }
+            }
+            else{
+                password = req_args[1].clone();
+                if request_type == "POST"{
+                    if let Some(v) = get_password().await{
+                        if password != v{
+                            return "<db_col><db_row><p>Złe Hasło/Wrong Password</p></db_row></db_col>".to_string();
+                        }
+                    }
+                    else{
+                        return "<db_col><db_row><p>Błąd odczytu hasła/Error getting password</p></db_row></db_col>".to_string()
+                    }
+                }
+            }
+        }
     }
-    
     println!("REQUEST: \"{}\", {}, \"{}\"", request_type, request_number, strvec_to_str(&args));
     match request_type.as_str(){
         "GET" => {
@@ -509,6 +531,87 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                         return "<db_col><db_row><p>Error 1</p></db_row><db_row><p>Błąd 1</p></db_row></db_col>".to_string()
                     }
                 }
+                2 => {
+                    let query = "INSERT INTO Teachers (teacher_id, first_name, last_name) VALUES (?1, ?2, ?3)
+                        ON CONFLICT (teacher_id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name";
+                    let (teacher_id, first_name, last_name) = (
+                        str::parse::<u8>(args[0].trim()), &args[1], &args[2]
+                        );
+                    if teacher_id.is_ok()&!first_name.is_empty()&!last_name.is_empty() == true{
+                        let database = db.lock().await;
+                        match database.execute(&query, [&teacher_id.unwrap().to_string(), first_name, last_name]){
+                            Ok(_) => return "<db_col><db_row><p>Success/Sukces</p></db_row></db_col>".to_string(),
+                            Err(e) => return format!("<db_col><db_row><p>Error/Błąd</p></db_row><db_row><p>{}</p></db_row></db_col>", e.to_string())
+                        }
+                    }
+                }
+                3 => {
+                    let query = "INSERT INTO Duties (lesson_hour, teacher_id, classroom_id, week_day) VALUES (?1, ?2, ?3, ?4)
+                        ON CONFLICT (lesson_hour, teacher_id, week_day) DO UPDATE SET classroom_id = excluded.classroom_id";
+                    let (lesson_hour, teacher_id, classroom_id, week_day) = 
+                        (
+                            str::parse::<u8>(args[0].trim()), str::parse::<u8>(args[1].trim()), str::parse::<u8>(args[2].trim()), str::parse::<u8>(args[3].trim())
+                        );
+                    if lesson_hour.is_ok()&teacher_id.is_ok()&classroom_id.is_ok()&week_day.is_ok() == true{
+                        let database = db.lock().await;
+                        match database.execute(&query, [lesson_hour.unwrap(), teacher_id.unwrap(), classroom_id.unwrap(), week_day.unwrap()]){
+                            Ok(_) => return "<db_col><db_row><p>Success/Sukces</p></db_row></db_col>".to_string(),
+                            Err(e) => return format!("<db_col><db_row><p>Error/Błąd: {}</p></db_row></db_col>", e.to_string())
+                        }
+                    }
+                }
+                4 => {
+                    let query = "INSERT INTO Subjects (subject_id, subject_name) VALUES (?1, ?2)
+                        ON CONFLICT (subject_id) DO UPDATE SET subject_name = excluded.subject_name";
+                    let (subject_id, subject_name) = 
+                        (str::parse::<u8>(args[0].trim()), &args[1]);
+                    if !subject_name.is_empty()&&subject_id.is_ok() == true{
+                        let database = db.lock().await;
+                        match database.execute(&query, [&subject_id.unwrap().to_string(), subject_name]){
+                            Ok(_) => return "<db_col><db_row><p>Sukces/Success</p></db_row></db_col>".to_string(),
+                            Err(e) => return format!("<db_col><db_row><p>Błąd/Error {}</p></db_row></db_col>", e)
+                        }
+                    }
+                }
+                5 => {
+                    let query = "INSERT INTO Classes (class_id, class_name) VALUES (?1, ?2)
+                        ON CONFLICT (class_id) DO UPDATE SET class_name = excluded.class_name";
+                    let (class_id, class_name) = 
+                        (str::parse::<u8>(args[0].trim()), &args[1]);
+                    if class_id.is_ok()&!class_name.is_empty() == true{
+                        let database = db.lock().await;
+                        match database.execute(&query, [&class_id.unwrap().to_string(), class_name]){
+                            Ok(_) => return "<db_col><db_row><p>Sukces/Success</p></db_row></db_col>".to_string(),
+                            Err(e) => return format!("<db_col><db_row><p>Błąd/Error {}</p></db_row></db_col>", e)
+                        }
+                    }
+                }
+                6 => {
+                    let query = "INSERT INTO Classrooms (classroom_id, classroom_name) VALUES (?1, ?2)
+                        ON CONFLICT (classroom_id) DO UPDATE SET classroom_name = excluded.classroom_name";
+                    let (classroom_id, classroom_name) = 
+                        (str::parse::<u8>(args[0].trim()), &args[1]);
+                    if classroom_id.is_ok()&!classroom_name.is_empty() == true{
+                        let database = db.lock().await;
+                        match database.execute(&query, [&classroom_id.unwrap().to_string(), classroom_name]){
+                            Ok(_) => return "<db_col><db_row><p>Sukces/Success</p></db_row></db_col>".to_string(),
+                            Err(e) => return format!("<db_col><db_row><p>Błąd/Error {}</p></db_row></db_col>", e)
+                        }
+                    }
+                }
+                7 => {
+                    let query = "INSERT INTO LessonHours (lesson_num, start_time, end_time) VALUES (?1, ?2, ?3)
+                        ON CONFLICT (lesson_num) DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time";
+                    let (lesson_num, start_time, end_time) = 
+                        (str::parse::<u8>(args[0].trim()), str::parse::<u16>(args[1].trim()), str::parse::<u16>(args[2].trim()));
+                    if lesson_num.is_ok()&start_time.is_ok()&end_time.is_ok() == true{
+                        let database = db.lock().await;
+                        match database.execute(&query, [lesson_num.unwrap().into(), start_time.unwrap(), end_time.unwrap()]){
+                            Ok(_) => return "<db_col><db_row><p>Sukces/Success</p></db_row></db_col>".to_string(),
+                            Err(e) => return format!("<db_col><db_row><p>Błąd/Error {}</p></db_row></db_col>", e)
+                        }
+                    }
+                }
                 _ => {
                     return "<h1>Unknown request/Nieznane zapytanie</h1>".to_string()
                 }
@@ -540,7 +643,7 @@ fn strvec_to_str(vec: &Vec<String>) -> String{
     }
     return finstr
 }
-
+#[allow(dead_code)]
 fn get_types(line: String) -> Vec<String> {
     let split_line = line.split_whitespace().collect::<Vec<&str>>();
     let mut types: Vec<String> = vec![];
@@ -652,3 +755,25 @@ pub async fn init_database() -> Result<(), ()>{
     return Ok(());
 }
 
+#[derive(Deserialize, Serialize, Default)]
+struct Config{
+    password: String,
+    #[allow(unused)]
+    ip_addr: Option<IpAddr>
+}
+
+async fn get_password() -> Option<String>{
+    if let Ok(v) = tokio::fs::read_to_string("data/config.toml").await{
+        if let Ok(c) = toml::from_str::<Config>(&v){
+            if c.password.is_empty(){
+                return None;
+            }
+            else{
+                return Some(c.password);
+            }
+        }
+    }
+    if let Ok(_) = std::fs::write("data/config.toml",toml::to_string(&Config::default()).unwrap_or("".to_string())){
+    };
+    return None;
+}

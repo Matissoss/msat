@@ -33,8 +33,10 @@ TODO ([SETUP](setup.md))
 # License
 
 **msat** and **msatc** are distributed under either of these two Licenses:
-- MPL 2.0 (Mozilla Public License 2.0) ([MPL](LICENSE-MPL.md)) or:
+- MPL 2.0 (Mozilla Public License 2.0) ([MPL](LICENSE-MPL.md)),
 - Apache License 2.0 ([Apache](LICENSE-APACHE.md))
+
+**msat** and **msatc** logo and names are protected by this document: ([LICENSE-TRADEMARK][LICENSE.promo.md])
 
 # Credits
 
