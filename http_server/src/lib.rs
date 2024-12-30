@@ -25,7 +25,7 @@ struct Class{
 struct LessonHour{
     lesson_num: u8,
     start_time: u16,
-    end_time: u16
+    end_time: u16,
 }
 struct Teacher{
     teacher_id: u8,
@@ -63,7 +63,6 @@ pub async fn init(ip_addr: IpAddr) {
                 Err(_) => std::process::exit(-1)
             }
     ));
-    database.lock().await.execute("INSERT INTO Classrooms (classroom_id, classroom_name) VALUES (?1, ?2)", ["1", "Klasa_Przyrodnicza"]).unwrap();
     let final_address = format!("{}:8000", ip_addr.to_string());
     let shared_ipaddr = Arc::new(ip_addr);
     let listener: TcpListener = match TcpListener::bind(final_address) {
@@ -472,7 +471,48 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
             }
         }
         "POST" => {
-
+            match request_number{
+                1 => {
+                    let query = "INSERT INTO Lessons 
+                            (week_day, class_id, classroom_id, subject_id, teacher_id, lesson_hour) 
+                            VALUES (?1,?2,?3,?4,?5,?6)
+                            ON CONFLICT (class_id, lesson_hour, week_day) 
+                            DO UPDATE SET classroom_id = excluded.classroom_id, subject_id = excluded.subject_id,
+                            teacher_id = excluded.teacher_id;";
+                    let (class_id, classroom_id, subject_id, teacher_id, lesson_num, week_day) = 
+                    (
+                        str::parse::<u8>(args[2].trim()), str::parse::<u8>(args[3].trim()),
+                        str::parse::<u8>(args[4].trim()), str::parse::<u8>(args[1].trim()),
+                        str::parse::<u8>(args[5].trim()), str::parse::<u8>(args[0].trim())
+                    );
+                    if class_id.is_ok()&classroom_id.is_ok()&subject_id.is_ok()
+                        &teacher_id.is_ok()&lesson_num.is_ok()&week_day.is_ok()== true
+                    {
+                        let (u_class, u_classroom, u_subject, u_teacher, u_lesson, u_weekday) = 
+                        (class_id.unwrap(), classroom_id.unwrap(), subject_id.unwrap(), teacher_id.unwrap(), 
+                         lesson_num.unwrap(),week_day.unwrap());
+                        let database = db.lock().await;
+                        if let Ok(_) = database.execute(&query, 
+                            [u_weekday, u_class, u_classroom, u_subject, u_teacher, u_lesson])
+                        {
+                            return 
+                                "<db_col><db_row><p>Successfully added data</p></db_row>
+                                <db_row><p>Pomyślnie dodano dane do bazy danych</p></db_row></db_col>".to_string()
+                        } else{
+                            return "<db_col>
+                            <db_row><p>Error</p></db_row>
+                            <db_row><p>Błąd</p></db_row>
+                                </db_col>".to_string()
+                        };
+                    }
+                    else{
+                        return "<db_col><db_row><p>Error 1</p></db_row><db_row><p>Błąd 1</p></db_row></db_col>".to_string()
+                    }
+                }
+                _ => {
+                    return "<h1>Unknown request/Nieznane zapytanie</h1>".to_string()
+                }
+            }
         }
         _ => {
             return "<h1>Error - wrong request</h1>".to_string();

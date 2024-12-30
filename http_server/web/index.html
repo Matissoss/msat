@@ -7,7 +7,7 @@
 	<body>
 		<h1 id="title">msat dashboard</h1>
 		<fieldset>
-		<legend>Ustawienia</legend>
+		<legend id = "lang-t">Ustawienia</legend>
 		<form id="lang">
 			<select name="lang">
 				<option value="pl">Polski</option>
@@ -18,12 +18,13 @@
 		</fieldset>
 		<hr>
 		<fieldset>
-		<legend>Dane wejściowe</legend>
+		<legend id = "data-t">Dane wejściowe</legend>
 		<form id="data">
 			<select name="method" id="input">
 			</select>
+			<p id="input_text" class="non-visible"></p>
 			<input type=text name="args" id="input_args" class="non-visible">
-			<button>Submit</button>
+			<button id = "submit">Submit</button>
 		</form>
 		</fieldset>
 		<div id="response"></div>

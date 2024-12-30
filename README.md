@@ -1,45 +1,44 @@
 <div align=center>
+    <img src="promo/logo256x256.png">
     <h1>msat</h1>
     <p>mateus's school administration tool</p>
 </div>
 
 ---
-***WARNING: PROJECT IS STILL UNDER WORK AND IS NOT DEPLOYMENT-READY!!!***
+
+# ‼️ ATTENTION ‼️
+
+**msat** and **msatc** are in early development and are ***NOT*** deplyoment-ready,
+project is approximately **~45%** done.
 
 # About
 
-**msat** is FOSS (Free and Open-Source) tool for school administration[^1].
+**msat**/**msatc** are FOSS (free and open-source) school administration tools.
+**msat** is application-server for **msatc** consisting of: 
+**[server](server)** and **[admin dashboard](http_server)**
+
+**msatc** is client for **msat** made exclusively for mobile platforms (TODO).
 
 # Features
 
-- Multithreaded, lightweight, fast and safe,
-- Easy to understand documentation,
-- Crossplatform,
+- 🚀 Multithreaded and asynchronous,
+- 🦀 Made in Rust,
+- 📖 User-friendly documentation
+- 🆓 FOSS (Free and open-source)
 
-# LICENSE
+# Setup
 
-**msat** can be licensed under two of following licenses: 
-MPL (Mozilla Public License) and Apache 2.0 depending on your requirements. 
-Recommended License is **MPL**
+TODO ([SETUP](setup.md))
 
-[APACHE](LICENSE-APACHE) [MPL](LICENSE-MPL)
+# License
 
-# Documentation
-
-TODO
+**msat** and **msatc** are distributed under either of these two Licenses:
+- MPL 2.0 (Mozilla Public License 2.0) ([MPL](LICENSE-MPL.md)) or:
+- Apache License 2.0 ([Apache](LICENSE-APACHE.md))
 
 # Credits
-<div align=center>
-<img src=https://private-avatars.githubusercontent.com/u/156523002?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTEiLCJleHAiOjE3MzQ2Mzc4MDAsIm5iZiI6MTczNDYzNjYwMCwicGF0aCI6Ii91LzE1NjUyMzAwMiJ9.mnkKyPXTGEWM-66fPGBX1hHQ-sLVnx_cchZhkvEOlxk&s=96&v=4>
-<p>MateusDev</p>
-</div>
 
-**msat** is actively developed by MateusDev.
+**msat** was made using Rust, serde (toml), tokio-rs and SQLite bindings for Rust (rusqlite), 
+without these **msat** wouldn't exist.
 
-**msat** uses Rust[^2] and SQLite[^3] under hood.
-
----
-
-[^1]: partially, mostly for teachers QOL
-[^2]: with tokio-rs, rusqlite, chrono, etc. Check [server/Cargo.toml](server/Cargo.toml) for more info
-[^3]: using rusqlite crate
+**msat** and **msatc** were made by **Mateus Dev** ([Profile](https://github.com/Matissoss))

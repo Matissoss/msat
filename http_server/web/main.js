@@ -32,14 +32,69 @@ $("input").addEventListener('change', (e) => {
 	let data = e.target.value;
 	if (data.includes("GET")){
 		$("input_args").className = "non-visible"
+		$("input_text").className = "non-visible";
 	}
 	else
 	{
+		$("input_text").className = "";
+		$("input_args").className = "";
 		if (data.includes("1")){
-			$("input_args").placeholder = 
-"(dzień tygodnia - cyfra (1-7)), (id nauczyciela - cyfra), (id klasy - cyfra), (id klasy(pomieszczenie) - numer), (id przedmiotu - cyfra), (numer lekcji - cyfra)"
+			if (language == "pl"){
+			$("input_text").innerHTML = 
+"(dzień tygodnia - cyfra (1-7)), (id nauczyciela - cyfra), (id klasy - cyfra), (id klasy(pomieszczenie) - cyfra), (id przedmiotu - cyfra), (numer lekcji - cyfra)"
+			}
+			else{
+				$("input_text").innerHTML = "(week_day: number 1-7), (teacher id - number), (classroom_id - number), (subject id - number), (lesson number - number)"
+			}
 		}
-		$("input_args").className = ""
+		else if (data.includes("2")){
+			if (language == "pl"){
+				$("input_text").innerHTML = "(id nauczyciela - numer), (imię - tekst (jeden wyraz)), (nazwisko - tekst (jeden wyraz))";
+			}
+			else{
+				$("input_text").innerHTML = "(teacher id - number), (first_name - text (one-word)), (last_name - text (one word))";
+			}
+		}
+		else if (data.includes("3")){
+			if (language == "pl"){
+				$("input_text").innerHTML = "(numer lekcji - numer), (id nauczyciela - numer), (numer klasy (pomieszczenie) - numer), (numer tygodnia - numer 1-7)"
+			}
+			else{
+				$("input_text").innerHTML = "(lesson number - number), (teacher id - number), (classroom id - number), (week_day - number 1-7)"
+			}
+		}
+		else if (data.includes("4")){
+			if (language == "pl"){
+				$("input_text").innerHTML = "(id przedmiotu - numer), (nazwa przedmiotu - tekst (jedno słowo, zamiast spacji użyć: '_'))"
+			}
+			else{
+				$("input_text").innerHTML = "(subject id - number), (subject name - text (one-word, instead of space use: '_'))"
+			}
+		}
+		else if (data.includes("5")){
+			if (language == "pl"){
+				$("input_text").innerHTML = "(id klasy - numer), (nazwa klasy - tekst (jedno słowo, zamiast spacji użyć: '_'))"
+			}
+			else{
+				$("input_text").innerHTML = "(class id - number), (class name - text (one-word, instead of space use: '_'))"
+			}
+		}
+		else if (data.includes("6")){
+			if (language == "pl"){
+				$("input_text").innerHTML = "(id klasy (pomieszczenie) - numer), (nazwa klasy(pomieszczenie) - tekst (jedno słowo, zamiast spacji używać: '_'))"
+			}
+			else{
+				$("input_text").innerHTML = "(classroom id - number), (classroom name - text (one-word, instead of space use: '_'))"
+			}
+		}
+		else if (data.includes("7")){
+			if (language == "pl"){
+				$("input_text").innerHTML = "(numer lekcji - numer), (godzina rozpoczęcia - (np. 9:00, ale BEZ ':', czyli: 900)), (godzina zakończenia - tak jak godzina rozpoczęcia)"
+			}
+			else{
+				$("input_text").innerHTML = "(lesson number - number), (start time: hhmm -> (fe. 9:00, but WITHOUT ':', so: 900)), (end time - same as start time)"
+			}
+		}
 	}
 });
 
@@ -116,6 +171,9 @@ function polish(){
 			$("input").innerHTML += `<option value="${request_type} ${i}">${str}</option>`;
 		}
 	}
+	$("data-t").innerHTML = "Dane Wejściowe";
+	$("lang-t").innerHTML = "Ustawienia";
+	$("submit").innerHTML = "Wyślij zapytanie";
 }
 function english(){
 	language = "en";
@@ -191,6 +249,9 @@ function english(){
 			$("input").innerHTML += `<option value="${request_type} ${i}">${str}</option>`;
 		}
 	}
+	$("data-t").innerHTML = "Input";
+	$("lang-t").innerHTML = "Settings";
+	$("submit").innerHTML = "Submit";
 }
 
 let query = window.location.search;
