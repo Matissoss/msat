@@ -36,8 +36,6 @@ TODO ([SETUP](setup.md))
 - MPL 2.0 (Mozilla Public License 2.0) ([MPL](LICENSE-MPL.md)),
 - Apache License 2.0 ([Apache](LICENSE-APACHE.md))
 
-**msat** and **msatc** logo and names are protected by this document: ([LICENSE-TRADEMARK][LICENSE.promo.md])
-
 # Credits
 
 **msat** was made using Rust, serde (toml), tokio-rs and SQLite bindings for Rust (rusqlite), 
