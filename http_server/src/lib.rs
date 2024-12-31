@@ -54,9 +54,11 @@ async fn main(){
 }
 
 pub async fn init(ip_addr: IpAddr) {
+    /*
     if let Err(_) = init_database().await{
         std::process::exit(-1);
     };
+    */
     let database = Arc::new(Mutex::new(
             match rusqlite::Connection::open_with_flags("data/database.db",
                 OpenFlags::SQLITE_OPEN_CREATE|OpenFlags::SQLITE_OPEN_FULL_MUTEX|OpenFlags::SQLITE_OPEN_READ_WRITE){
@@ -69,10 +71,10 @@ pub async fn init(ip_addr: IpAddr) {
         Ok(v) => v,
         Err(_) => std::process::exit(-1),
     };
-    println!("initialized");
+    println!("Initialized HTTP SERVER");
     loop {
         for s in listener.incoming() {
-            println!("request");
+            println!("REQUEST Incoming");
             if let Ok(stream) = s{
                 let cloned_dbptr = Arc::clone(&database);
                 tokio::spawn(async {
@@ -80,7 +82,7 @@ pub async fn init(ip_addr: IpAddr) {
                 });
             }
             else if let Err(error) = s{
-                println!("eror?: {}", error);
+                eprintln!("TCPStream is Err: {}", error);
             }
         }
     }
@@ -122,8 +124,8 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:application/xml\r\n\r\n{}",
                                         response.len(), response).as_bytes())
                                 {
-                                    Ok(_) => println!("Success"),
-                                    Err(_) => println!("Error")
+                                    Ok(_) => print!("\n---\nResponsed To Request"),
+                                    Err(_) => print!("\n---\nCouldn't Respond")
                                 };
                             }
                         }
@@ -185,7 +187,6 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
 async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection>>) -> String{
     // request example: /?method=POST&version=10&args=20
     let request = String::from_iter(request.chars().collect::<Vec<char>>()[2..].iter());
-    println!("REQUEST {}", request);
     let mut request_type = "".to_string();
     let mut args : Vec<String> = vec![];
     let mut request_number = 0;
@@ -194,12 +195,10 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
 
     for s in req_split{
         if s.starts_with("args="){
-            println!("{}", s);
             args = 
                 split_string_by(&strvec_to_str(&split_string_by(&s, '=')[1..].to_vec()),'+');
         }
         else if s.starts_with("method="){
-            println!("{}", s);
             let request_arguments = split_string_by(&strvec_to_str(&split_string_by(&s, '=')[1..].to_vec()),'+');
             request_type = request_arguments[0].to_string();
             if let Ok(v) = str::parse::<u8>(&request_arguments[1]){
@@ -207,24 +206,19 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
             }
         }
         else if s.starts_with("password="){
-            println!("{}", s);
             let req_args = split_string_by(&s, '=');
             if req_args.len() <= 1 {
-                if request_type == "POST"{
-                    return "<db_col><db_row><p>Brak Hasła/No Password</p></db_row></db_col>".to_string();
-                }
+                return "<db_col><db_row><p>Brak Hasła/No Password</p></db_row></db_col>".to_string();
             }
             else{
                 password = req_args[1].clone();
-                if request_type == "POST"{
-                    if let Some(v) = get_password().await{
-                        if password != v{
-                            return "<db_col><db_row><p>Złe Hasło/Wrong Password</p></db_row></db_col>".to_string();
-                        }
+                if let Some(v) = get_password().await{
+                    if password != v{
+                        return "<db_col><db_row><p>Złe Hasło/Wrong Password</p></db_row></db_col>".to_string();
                     }
-                    else{
-                        return "<db_col><db_row><p>Błąd odczytu hasła/Error getting password</p></db_row></db_col>".to_string()
-                    }
+                }
+                else{
+                    return "<db_col><db_row><p>Błąd odczytu hasła/Error getting password</p></db_row></db_col>".to_string()
                 }
             }
         }
@@ -255,12 +249,12 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .collect();
                             let mut to_return : String = String::from("<db_col>
                                 <db_row>
-                                <p>Week Day</p>
-                                <p>Teacher ID</p>
-                                <p>Class ID</p>
-                                <p>Classroom ID</p>
-                                <p>Subject ID</p>
-                                <p>Lesson Hour</p>
+                                <p id = \"1\">Week Day</p>
+                                <p id = \"2\">Teacher ID</p>
+                                <p id = \"3\">Class ID</p>
+                                <p id = \"4\">Classroom ID</p>
+                                <p id = \"5\">Subject ID</p>
+                                <p id = \"6\">Lesson Hour</p>
                                 </db_row>");
                             for e in filtered_iter{
                                 to_return.push_str(
@@ -297,9 +291,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .collect();
                             let mut to_return : String = String::from("<db_col>
                                 <db_row>
-                                <p>Teacher ID</p>
-                                <p>First Name</p>
-                                <p>Last Name</p>
+                                <p id='1'>Teacher ID</p>
+                                <p id='2'>First Name</p>
+                                <p id='3'>Last Name</p>
                                 </db_row>");
                             for e in filtered_iter{
                                 to_return.push_str(
@@ -334,10 +328,10 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .collect();
                             let mut to_return : String = String::from("<db_col>
                                 <db_row>
-                                <p>Lesson Hour</p>
-                                <p>Teacher ID</p>
-                                <p>Classroom ID</p>
-                                <p>Week Day</p>
+                                <p id='1'>Lesson Hour</p>
+                                <p id='2'>Teacher ID</p>
+                                <p id='3'>Classroom ID</p>
+                                <p id='4'>Week Day</p>
                                 </db_row>");
                             for e in filtered_iter{
                                 to_return.push_str(
@@ -371,8 +365,8 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .collect();
                             let mut to_return : String = String::from("<db_col>
                                 <db_row>
-                                <p>Subject ID</p>
-                                <p>Subject Name</p>
+                                <p id='1'>Subject ID</p>
+                                <p id='2'>Subject Name</p>
                                 </db_row>");
                             for e in filtered_iter{
                                 to_return.push_str(
@@ -404,8 +398,8 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .collect();
                             let mut to_return : String = String::from("<db_col>
                                 <db_row>
-                                <p>Class ID</p>
-                                <p>Class Name</p>
+                                <p id='1'>Class ID</p>
+                                <p id='2'>Class Name</p>
                                 </db_row>");
                             for e in filtered_iter{
                                 to_return.push_str(
@@ -437,8 +431,8 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .collect();
                             let mut to_return : String = String::from("<db_col>
                                 <db_row>
-                                <p>Classroom ID</p>
-                                <p>Classroom Name</p>
+                                <p id='1'>Classroom ID</p>
+                                <p id='2'>Classroom Name</p>
                                 </db_row>");
                             for e in filtered_iter{
                                 to_return.push_str(
@@ -471,9 +465,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .collect();
                             let mut to_return : String = String::from("<db_col>
                                 <db_row>
-                                <p>Lesson Number</p>
-                                <p>Start Time</p>
-                                <p>End Time</p>
+                                <p id='1'>Lesson Number</p>
+                                <p id='2'>Start Time</p>
+                                <p id='3'>End Time</p>
                                 </db_row>");
                             for e in filtered_iter{
                                 to_return.push_str(

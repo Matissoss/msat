@@ -8,6 +8,7 @@ $("data").addEventListener('submit', async function (e) {
     e.preventDefault();
 
     const formData = new FormData(this);
+    let method = formData.get("method");
     const params = new URLSearchParams();
     formData.forEach((value, key) => {
         params.append(key, value);
@@ -18,8 +19,47 @@ $("data").addEventListener('submit', async function (e) {
     .then(response => response.text()) 
     .then(result => {
 	    $("response").innerHTML = result;
+	    if (language == "pl"){
+	    	if (method == 'GET 1'){
+			$("1").innerHTML = "Dzień Tygodnia";
+			$("2").innerHTML = "ID Nauczyciela";
+			$("3").innerHTML = "ID Klasy";
+			$("4").innerHTML = "ID Klasy (pomieszczenie)";
+			$("5").innerHTML = "ID Przedmiotu";
+			$("6").innerHTML = "Godzina Lekcyjna";
+	    	}
+		else if(method == 'GET 2'){
+			$("2").innerHTML = "Imię";
+			$("1").innerHTML = "ID Nauczyciela";
+			$("3").innerHTML = "Nazwisko";
+		}
+		else if (method == 'GET 3'){
+			$("1").innerHTML = "Godzina Lekcyjna";
+			$("2").innerHTML = "ID Nauczyciela";
+			$("3").innerHTML = "ID Klasy (pomieszczenie)";
+			$("4").innerHTML = "Dzień Tygodnia";
+		}
+		else if (method=='GET 4'){
+			$("1").innerHTML = "ID Przedmiotu";
+			$("2").innerHTML = "Nazwa Przedmiotu";
+		}
+		else if (method=='GET 5'){
+			$("1").innerHTML = "ID Klasy";
+			$("2").innerHTML = "Nazwa Klasy";
+		}
+		else if (method=='GET 6'){
+			$("1").innerHTML = "ID Klasy (pomieszczenie)";
+			$("2").innerHTML = "Nazwa Klasy";
+		}
+		else if (method=='GET 7'){
+			$("1").innerHTML = "Numer Lekcji";
+			$("2").innerHTML = "Godzina Rozpoczęcia";
+			$("3").innerHTML = "Godzina Zakończenia";
+		}
+	    }
 	    $("input_args").value = "";
 	    set_width();
+	    translate(method);
     })
     .catch(() => {
 	    $("response").innerHTML = "<db_col><db_row><p>Server didn't send any data. Check if your request is correct</p><p>Serwer nie wysłał żadnych informacji. Sprawdź czy twoje zapytanie jest poprawne.</p></db_row></db_col>";
@@ -36,18 +76,57 @@ function set_width(){
 	    }
 }
 
+function translate(method){
+	if (language == "pl"){
+	    	if (method == 'GET 1'){
+			$("1").innerHTML = "Dzień Tygodnia";
+			$("2").innerHTML = "ID Nauczyciela";
+			$("3").innerHTML = "ID Klasy";
+			$("4").innerHTML = "ID Klasy (pomieszczenie)";
+			$("5").innerHTML = "ID Przedmiotu";
+			$("6").innerHTML = "Godzina Lekcyjna";
+	    	}
+		else if(method == 'GET 2'){
+			$("2").innerHTML = "Imię";
+			$("1").innerHTML = "ID Nauczyciela";
+			$("3").innerHTML = "Nazwisko";
+		}
+		else if (method == 'GET 3'){
+			$("1").innerHTML = "Godzina Lekcyjna";
+			$("2").innerHTML = "ID Nauczyciela";
+			$("3").innerHTML = "ID Klasy (pomieszczenie)";
+			$("4").innerHTML = "Dzień Tygodnia";
+		}
+		else if (method=='GET 4'){
+			$("1").innerHTML = "ID Przedmiotu";
+			$("2").innerHTML = "Nazwa Przedmiotu";
+		}
+		else if (method=='GET 5'){
+			$("1").innerHTML = "ID Klasy";
+			$("2").innerHTML = "Nazwa Klasy";
+		}
+		else if (method=='GET 6'){
+			$("1").innerHTML = "ID Klasy (pomieszczenie)";
+			$("2").innerHTML = "Nazwa Klasy";
+		}
+		else if (method=='GET 7'){
+			$("1").innerHTML = "Numer Lekcji";
+			$("2").innerHTML = "Godzina Rozpoczęcia";
+			$("3").innerHTML = "Godzina Zakończenia";
+		}
+	}
+}
+
 $("input").addEventListener('change', (e) => {
 	let data = e.target.value;
 	if (data.includes("GET")){
 		$("input_args").className = "non-visible"
 		$("input_text").className = "non-visible";
-		$("input_password").className = "non-visible";
 	}
 	else
 	{
 		$("input_text").className = "";
 		$("input_args").className = "";
-		$("input_password").className = "";
 		if (data.includes("1")){
 			if (language == "pl"){
 			$("input_text").innerHTML = 

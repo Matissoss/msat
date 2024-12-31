@@ -19,20 +19,20 @@ fn main() {
     send_request("POST 10 7 password=test 1 Klasa_8\r");
     // GET's
     // This request is mostly automated, only requiring teacher id
-    send_request("GET 10 1 1\r");
+    send_request("GET 10 1 password=test 1\r");
     // This request doesn' require any argument - it is automated
-    send_request("GET 10 2\r");
+    send_request("GET 10 2 password=test\r");
     // This request is also partially automated, only requiring teacher id
-    send_request("GET 10 3 1\r");
+    send_request("GET 10 3 password=test 1\r");
     // Same
-    send_request("GET 10 4 1\r");
+    send_request("GET 10 4 password=test 1\r");
     // Same
-    send_request("GET 10 5 1\r");
+    send_request("GET 10 5 password=test 1\r");
     // This one is fully automated
-    send_request("GET 10 6\r");
-    send_request("GET 10 7 1\r");
-    send_request("GET 10 8 1\r");
-    send_request("GET 10 9 1\r");
+    send_request("GET 10 6 password=test \r");
+    send_request("GET 10 7 password=test 1\r");
+    send_request("GET 10 8 password=test 1\r");
+    send_request("GET 10 9 password=test 1\r");
 }
 
 fn send_request(request: &str){

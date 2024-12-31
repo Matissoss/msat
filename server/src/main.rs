@@ -8,7 +8,7 @@ use std::{
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use rusqlite::{Connection as SQLite, OpenFlags};
+use rusqlite::{Connection as SQLite, OpenFlags, ToSql};
 use serde::{Serialize,Deserialize};
 mod database;
 use crate::database as Database;
@@ -106,7 +106,7 @@ impl std::fmt::Display for ConnectionError{
                 writeln!(f, "{} 400: Version wasn't provided in request.", ERROR)
             }
             Self::NoPassword => {
-                writeln!(f, "{} 403: Password wasn't provided in POST request.", ERROR)
+                writeln!(f, "{} 403: Password wasn't provided in request.", ERROR)
             }
             Self::WrongVersion => {
                 writeln!(f, "{} 505: Client uses different version than server.", ERROR)
@@ -329,7 +329,7 @@ async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
 }
 
 async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Result<(), ConnectionError>{
-    let mut data_sent = [0u8; 1024];
+    let mut data_sent = [0u8; 2048];
     match stream.read(&mut data_sent){
         Ok(_) => {}
         Err(_) => {return Err(ConnectionError::CannotRead);}
@@ -341,7 +341,7 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
         },
         Err(e) => {
             eprintln!("{}", e);
-            "".to_string()
+            String::from_utf8_lossy(&data_sent).to_string()
         }
     };
     let parsed_req : ParsedRequest = ParsedRequest::from(match parse_request(&string).await{
@@ -360,7 +360,7 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
     }
     match parsed_req.request{
         Request::GET|Request::POST =>{
-            if parsed_req.request == Request::POST && parsed_req.password.is_none(){
+            if parsed_req.password.is_none(){
                 return Err(ConnectionError::NoPassword);
             }
             let response : String;
@@ -401,7 +401,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             return Err(RequestError::ParseIntError(parsed_request.content[0].clone()));
                         } 
                     };
-                    let date : u8 = chrono::Local::now().weekday() as u8;
+                    let date : u8 = chrono::Local::now().weekday() as u8 + 1u8;
                     let database = db.lock().await;
                     let mut prompt = match database.prepare("SELECT * FROM Lessons WHERE teacher_id = ?1 AND week_day = ?2;"){
                         Ok(v) => v,
@@ -512,7 +512,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::DatabaseError)
                     };
-                    let iter = match stmt.query_map([current_lesson, teacher_id, chrono::Local::now().weekday() as u8], |row|{
+                    let iter = match stmt.query_map([current_lesson, teacher_id, chrono::Local::now().weekday() as u8 + 1], |row|{
                         Ok(quick_match(row.get::<usize, u8>(2)))
                     }){
                         Ok(v) => v,
@@ -563,7 +563,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::DatabaseError)
                     };
-                    let iter = match stmt.query_map([chrono::Local::now().weekday() as u8, lesson_hour, teacher_id], |row| {
+                    let iter = match stmt.query_map([chrono::Local::now().weekday() as u8 + 1, lesson_hour, teacher_id], |row| {
                         Ok((
                                 // classroom and class
                                 quick_match(row.get::<usize, u8>(5)),
@@ -915,9 +915,8 @@ async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<Strin
     };
     for word in &sliced_input[3..]{
         if word.contains("password=") && password.is_none(){
-            if request_type == Request::POST{
-                password = Some(word[9..].to_string());
-            } 
+            password = Some(word[9..].to_string());
+            println!("{}", word[9..].to_string());
         }
         else if word.contains("password=") && password.is_some(){
             println!("{} Password was provided more than once!", ERROR);
@@ -926,20 +925,15 @@ async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<Strin
             content.push(word.to_string());
         }
     }
-    if request_type == Request::POST{
-        if let Some(correct_password) = get_password().await{
-            if let Some(ref input_password) = password{
-                if &correct_password != input_password{
-                    return Err(ConnectionError::WrongPassword)
-                }
-            }
-            else{
+    if let Some(correct_password) = get_password().await{
+        if let Some(ref input_password) = password{
+            if correct_password != *input_password{
                 return Err(ConnectionError::WrongPassword)
             }
         }
-    }
-    else{
-        return Err(ConnectionError::WrongPassword)
+        else{
+            return Err(ConnectionError::WrongPassword)
+        }
     }
     Ok((request_type,content,password,request_num))
 }
@@ -990,7 +984,7 @@ async fn get_teacher_duty_bool(teacher_id: u8,db: Arc<Mutex<SQLite>>) -> Result<
         Ok(v) => v,
         Err(_) => return Err(())
     };
-    let item = match stmt.query_row([teacher_id,chrono::Local::now().weekday() as u8,lesson_hour], |row|{
+    let item = match stmt.query_row([teacher_id,chrono::Local::now().weekday() as u8 + 1,lesson_hour], |row|{
     Ok(quick_match(row.get::<usize, u8>(1)))}){
         Ok(v) => v,
         Err(e) => {
