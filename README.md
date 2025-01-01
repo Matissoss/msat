@@ -1,5 +1,5 @@
 <div align=center>
-    <img src="promo/logo256x256.png">
+    <img src="promo/logo.svg" width=25%>
     <h1>msat</h1>
     <p>mateus's school administration tool</p>
 </div>
@@ -41,24 +41,24 @@ uses 64-bit x86 - x86_64).
 # Building from Source 
 
 ## msat 
-    **msat** requires following dependencies to be built from source:
-        - **rustc** (preferably cargo) for Rust edition 2021 (may work with earlier editions, but it's NOT officially supported),
-        - **tar** for compressing build,
-        - **git** (***optional***) for downloading source code,
-        - **bash** (***for method 1***) or just shell/terminal compatible with commands: *rm*, *mkdir*, *cp*, *mv*.
+**msat** requires following dependencies to be built from source:
+- **rustc** (preferably cargo) for Rust edition 2021 (may work with earlier editions, but it's NOT officially supported),
+- **tar** for compressing build,
+- **git** (***optional***) for downloading source code,
+- **bash** (***for method 1***) or just shell/terminal compatible with commands: *rm*, *mkdir*, *cp*, *mv*.
     
-    - 1. Clone repo with **git** (`git clone https://github.com/Matissoss/msat.git`) or download source code from releases section,
-    Now, there are two ways to build **msat** from scratch:
-    - 1. Building using official **build.sh** script:
+1. Clone repo with **git** (`git clone https://github.com/Matissoss/msat.git`) or download source code from releases section,
+### Now, there are two ways to build **msat** from scratch:
+1. Building using official **build.sh** script:
         - 1. use command: `sh build.sh`
-    - 2. Building using **cargo**/**rustc**:
-        This is ***NOT*** recommended way to build **msat**, because it requires more effort that is automated with **build.sh** script, but if you want:
-            - 1. Compile *http_server*/*server directory* using `cargo build --release`,
-            - 2. Add directory where you want your server to be stored,
-            - 3. Clone directory named **web** in *http_server* into directory you made,
-            - 4. (***OPTIONAL***) Compress build directory using `tar`, `winrar` or your favourite compression software.
+2. Building using **cargo**/**rustc**:
+     This is ***NOT*** recommended way to build **msat**, because it requires more effort that is automated with **build.sh** script, but if you want:
+   1. Compile *http_server*/*server directory* using `cargo build --release`,
+   2. Add directory where you want your server to be stored,
+   3. Clone directory named **web** in *http_server* into directory you made,
+   4. ***(OPTIONAL)*** Compress build directory using `tar`, `winrar` or your favourite compression software.
 ## msatc 
-    **msatc**'s development is not started yet
+> **msatc**'s development is not started yet
 
 # License
 
