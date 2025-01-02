@@ -1,7 +1,8 @@
-/server/target
-/server/data
+/app_server/target
+/app_server/data
 /tc/target
-/http_server/target
-/http_server/data
+/admin_dashboard/target
+/admin_dashboard/data
 /build
 /debug
+/shared/target

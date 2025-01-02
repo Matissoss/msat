@@ -54,11 +54,9 @@ async fn main(){
 }
 
 pub async fn init(ip_addr: IpAddr) {
-    /*
     if let Err(_) = init_database().await{
         std::process::exit(-1);
     };
-    */
     let database = Arc::new(Mutex::new(
             match rusqlite::Connection::open_with_flags("data/database.db",
                 OpenFlags::SQLITE_OPEN_CREATE|OpenFlags::SQLITE_OPEN_FULL_MUTEX|OpenFlags::SQLITE_OPEN_READ_WRITE){

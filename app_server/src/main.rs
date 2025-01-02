@@ -1,256 +1,81 @@
+///================================
+///             main.rs
+///  This file as well as others
+///  were made by MateusDev and 
+///  are licensed under MPL 2.0
+///  or APACHE 2.0
+///================================
+
+// Global Imports
 use core::str;
 use std::{ 
     io::{
         Read, Write
     }, net::{
         IpAddr, Ipv4Addr, TcpListener, TcpStream
+    }, sync::{
+        Arc, LazyLock
     }
 };
-use std::sync::Arc;
 use tokio::sync::Mutex;
-use rusqlite::{Connection as SQLite, OpenFlags, ToSql};
-use serde::{Serialize,Deserialize};
+use rusqlite::{
+    Connection as SQLite, 
+    OpenFlags
+};
+use chrono::{
+    self, Datelike, Timelike
+};
+// Local Imports
+
+mod types;
+mod cli;
 mod database;
-use crate::database as Database;
 mod config;
+
+use crate::types::*;
+use crate::database as Database;
 use crate::config as ConfigFile;
-use chrono::{self, Datelike, Timelike};
 
-#[derive(Clone,Debug,Default, PartialEq, Eq, PartialOrd, Ord)]
-enum Request{
-    GET,
-    POST,
-    #[default]
-    Other
-}
-
+// Const Declaration
 pub const VERSION : u16  = 10;
 pub const SUCCESS : &str = "[     OK     ]";
 pub const ERROR   : &str = "[     ERR     ]";
-
-impl ToString for Request{
-    fn to_string(&self) -> String {
-        match &self{
-            Self::GET => {
-                "GET".to_string()
-            },
-            Self::POST => {
-                "POST".to_string()
-            },
-            _ => "None".to_string()
-        }
-    }
-}
-
-#[derive(PartialEq,Eq,Serialize,Deserialize,Clone,Debug, Default)]
-struct Configuration{
-    password : String,
-    ip_addr  : Option<IpAddr>,
-}
-#[allow(unused)]
-#[derive(Clone,Copy,Debug,PartialEq, Eq, PartialOrd, Ord)]
-enum ConnectionError{
-    CannotRead,
-    WrongVersion,
-    RequestParseError,
-    NoVersion,
-    WrongPassword,
-    NoPassword,
-    WritingError,
-    ResponseError,
-    Other
-}
-
-#[allow(unused)]
-enum RequestError{
-    LengthError,
-    DatabaseError,
-    UnknownRequestError,
-    NoDataFoundError,
-    ParseIntError(String)
-}
-
-trait SendToClient{
-    fn to_response(input: Self) -> String;
-}
-
-impl std::fmt::Display for RequestError{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self{
-            Self::LengthError => {
-                writeln!(f, "{} 400: Client provided wrong amount of arguments", ERROR)
-            }
-            Self::DatabaseError => {
-                writeln!(f, "{} 500: Server couldn't make operation on database", ERROR)
-            }
-            Self::NoDataFoundError => {
-                writeln!(f, "{} 500: Server couldn't find any data requested by user", ERROR)
-            }
-            Self::ParseIntError(s) => {
-                writeln!(f, "{} 400: Client provided argument that couldn't be parsed as integer", ERROR)
-            }
-            Self::UnknownRequestError => {
-                writeln!(f, "{} 400: Server doesn't know how to proceed with this request", ERROR)
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for ConnectionError{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self{
-            Self::Other => {
-                writeln!(f, "{} Other", ERROR)
-            }
-            Self::NoVersion => {
-                writeln!(f, "{} 400: Version wasn't provided in request.", ERROR)
-            }
-            Self::NoPassword => {
-                writeln!(f, "{} 403: Password wasn't provided in request.", ERROR)
-            }
-            Self::WrongVersion => {
-                writeln!(f, "{} 505: Client uses different version than server.", ERROR)
-            }
-            Self::CannotRead => {
-                writeln!(f, "{} 500: Server was unable to read message from client.", ERROR)
-            }
-            Self::RequestParseError => {
-                writeln!(f, "{} 400: Server was unable to parse request.", ERROR)
-            }
-            Self::WritingError => {
-                writeln!(f, "{} 500: Server was unable to send message to client.", ERROR)
-            }
-            Self::WrongPassword => {
-                writeln!(f, "{} 400: Client provided wrong password.", ERROR)
-            }
-            Self::ResponseError => {
-                writeln!(f, "{} 400: Server was unable to respond to request.", ERROR)
-            }
-        }
-    }
-}
-
-impl SendToClient for RequestError{
-    fn to_response(input: Self) -> String {
-        match input{
-            Self::DatabaseError => {
-                "500 Internal Server Error: Server couldn't communicate with database".to_string()
-            }
-            Self::UnknownRequestError => {
-                "400 Bad Request: Server doesn't implement this request".to_string()
-            }
-            Self::LengthError => {
-                "400 Bad Request: Client provided wrong amount of arguments".to_string()
-            }
-            Self::NoDataFoundError => {
-                "500 Internal Server Error: Server couldn't provide any data".to_string()
-            }
-            Self::ParseIntError(s) => {
-                format!("400 Bad Request: Client provided string: \"{}\" which couldn't be parsed to 8-bit integer", s)
-            }
-        }
-    }
-}
-impl SendToClient for ConnectionError{
-    fn to_response(input: Self) -> String {
-        match input{
-            Self::ResponseError => {
-                "400 Bad Request: Server couldn't provide response to client".to_string()
-            }
-            Self::Other => {
-                "0 Unknown: Other".to_string()
-            }
-            Self::NoVersion => {
-                "400 Bad Request: Client didn't provide version in request".to_string()
-            }
-            Self::CannotRead => {
-                "500 Internal Server Request: Server couldn't read request sent by client".to_string()
-            }
-            Self::NoPassword => {
-                "400 Bad Request: Client didn't provide password in request".to_string()
-            }
-            Self::WrongVersion => {
-                "505 Version not supported: Client provided version that is different from server".to_string()
-            }
-            Self::WritingError => {
-                "500 Internal Server Request: Server couldn't send response to client".to_string()
-            }
-            Self::WrongPassword => {
-                "400 Bad Request: Client provided wrong password in POST request".to_string()
-            }
-            Self::RequestParseError => {
-                "400 Bad Request: Server couldn't parse request sent by client".to_string()
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-struct ParsedRequest{
-    request: Request,
-    content: Vec<String>,
-    password: Option<String>,
-    request_number: u8
-}
-
-impl From<(Request, Vec<String>, Option<String>, u8)> for ParsedRequest{
-    fn from(value: (Request, Vec<String>, Option<String>, u8)) -> Self {
-        let (req, con, pas, req_num) = value;
-        return ParsedRequest{
-            request: req,
-            content: con,
-            password: pas,
-            request_number: req_num
-        };
-    }
-}
-
-const CLEAR : &str = if cfg!(windows){
+pub const CLEAR   : &str = 
+if cfg!(windows){
     "cls"
 }
 else{
     "clear"
 };
+pub static LOCAL_IP: LazyLock<IpAddr> = LazyLock::new(|| 
+    {
+        IpAddr::from(Ipv4Addr::new(127, 0, 0, 1))
+    }
+);
 
+// Entry point
 #[tokio::main]
 async fn main() {
-    match std::process::Command::new(CLEAR).status(){
-        Ok(_) => {
-            println!("Initializing msat version {}...", VERSION);
-        }
-        Err(_) => {}
+    if let Ok(_) = std::process::Command::new(CLEAR).status(){
+        cli::print_dashboard();
     };
-
-    match Database::init().await{
-        Ok(_) => {}
+    
+    let flags = OpenFlags::SQLITE_OPEN_CREATE|OpenFlags::SQLITE_OPEN_READ_WRITE|OpenFlags::SQLITE_OPEN_FULL_MUTEX;
+    let db = match Database::init(flags).await{
+        Ok(v)  => {
+            Arc::new(Mutex::new(v))
+        }
         Err(_) => {
-            println!("{} Error initializing database", ERROR);
+            println!("Error occured while initializing Database");
             std::process::exit(-1);
         }
+    };
+    if let Err(error) = db.lock().await.execute_batch("PRAGMA journal_mode = WAL"){
+        cli::critical_error("Error executing batch command", error);
+    };
+    if let Err(error) = db.lock().await.busy_timeout(std::time::Duration::from_secs(4)){
+        cli::critical_error("Error setting busy_timeout", error);
     }
-    let database : Arc<Mutex<SQLite>> = Arc::new(Mutex::new(match SQLite::open_with_flags("data/database.db",
-                OpenFlags::SQLITE_OPEN_CREATE|OpenFlags::SQLITE_OPEN_READ_WRITE|OpenFlags::SQLITE_OPEN_FULL_MUTEX){
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{} Error opening database: {}", ERROR,e);
-            std::process::exit(-1);
-        }
-    }));
-    match database.lock().await.execute_batch("PRAGMA journal_mode = WAL;"){
-        Ok(_) => {}
-        Err(e) =>{
-            eprintln!("{} Error executing batch: {}", ERROR,e);
-            std::process::exit(-1);
-        }
-    }
-    match database.lock().await.busy_timeout(std::time::Duration::from_secs(4)){
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("{} Error setting busy_timeout: {}", ERROR,e);
-            std::process::exit(-1);
-        }
-    }
-
     let shared_config = Arc::new(match ConfigFile::get().await{
         Ok(v) => {v},
         Err(_) => {
@@ -260,30 +85,35 @@ async fn main() {
     });
     let ip_address = match &*shared_config{
         Some(v) => {
-            match v.ip_addr{
-                Some(v1) => Some(v1),
-                None => {None}
+            if let Some(ip) = v.ip_addr{
+                Some(ip)
+            }
+            else{
+                None
             }
         }
         None => {None}
     };
     let listener : TcpListener = match TcpListener::bind
-        (format!("{}:8888", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))))){
+        (format!("{}:8888", ip_address.unwrap_or(*LOCAL_IP)))
+        {
             Ok(v) => v,
-            Err(e) => {
-                if ip_address.is_none(){
-                    eprintln!(
-                    "{} data/config.toml doesn't contain any IP Address, like: `127.0.0.1`;
-                    Server automatically used this address with port 8888, but it wasn't able to connect : {}", ERROR,
-                    e);
-                    std::process::exit(-1);
+            Err(e) => 
+            {
+                if let Some(v) = ip_address {
+                    cli::critical_error(&format!("Error connecting to ip_address {}", v), e);
                 }
-                eprintln!("{} Error connecting to address: `{}` : {}", ERROR,ip_address.unwrap(), e);
-                std::process::exit(-1);
+                else{
+                    cli::critical_error(
+                    "data/config.toml doesn't contain any IP Address, like: `127.0.0.1`;
+                    Server automatically used this address with port 8888, but it wasn't able to connect : {}",
+                    e);
+                }
             }
     };
-    println!("Listening on {}:8888", ip_address.unwrap_or(IpAddr::from(Ipv4Addr::from([127,0,0,1]))));
-    start_listening(listener, database).await;
+
+    println!("Listening on {}:8888", ip_address.unwrap_or(*LOCAL_IP));
+    start_listening(listener, db).await;
     println!("Shutdown?");
     std::process::exit(0);
 }
@@ -291,35 +121,26 @@ async fn main() {
 async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
     loop{
         for s in listener.incoming(){
-            let (mut ip_address, mut port) = (IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),0);
-            let stream : Option<TcpStream> = match s{
-                Ok(v) => {
-                    match v.local_addr(){
-                        Ok(v1) => {
-                            (ip_address, port) = (v1.ip(), v1.port());
-                        }
-                        Err(_) => {}
-                    }
-                    Some(v)
-                },
-                Err(e) => {
-                    eprintln!("{} Couldn't establish connection with TCPStream : {}", ERROR, e);
-                    None
-                }
-            };
-            
-            if stream.is_some(){
+            let (mut ip_address, mut port) = (*LOCAL_IP,0);
+            if let Ok(stream) = s
+            {
+                if let Ok(socket_ip) = stream.local_addr()
+                {
+                    ip_address = socket_ip.ip();
+                    port = socket_ip.port();
+                };
+
                 let shared_db = Arc::clone(&db);
-                tokio::spawn(async move{
-                    match handle_connection(stream.unwrap(), shared_db).await{
-                        Ok(_) => {
-                            println!("{} Successfully handled request from TCPStream {}:{}\n---", SUCCESS, ip_address, port);
+                tokio::spawn(
+                    async move{
+                        if let Err(error) = handle_connection(stream, shared_db).await{
+                            cli::print_error("Error occured while handling exception", error);
                         }
-                        Err(e) => {
-                            println!("{}\n---", e);
-                        }
+                        else{
+                            cli::print_success(&format!("Successfully handled request from TCP Addr: {}:{}", ip_address, port))
+                        };
                     }
-                });
+                );
             }
             else{
                 println!("{} TCPStream is None", ERROR);
@@ -330,70 +151,55 @@ async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
 
 async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Result<(), ConnectionError>{
     let mut data_sent = [0u8; 2048];
-    match stream.read(&mut data_sent){
-        Ok(_) => {}
-        Err(_) => {return Err(ConnectionError::CannotRead);}
-    };
-    let string = match String::from_utf8(data_sent.to_vec()){
-        Ok(n) => {
-            println!("\"{}\"", n);
-            n
-        },
-        Err(e) => {
-            eprintln!("{}", e);
+    if let Err(_) = stream.read(&mut data_sent){
+        return Err(ConnectionError::CannotRead);
+    }
+    let string = {
+        if let Ok(str) = String::from_utf8(data_sent.to_vec()){
+            str
+        }
+        else{
             String::from_utf8_lossy(&data_sent).to_string()
         }
     };
-    let parsed_req : ParsedRequest = ParsedRequest::from(match parse_request(&string).await{
-        Ok(v) => v,
-        Err(e) => {
-            return Err(e);
+    let parsed_req = {
+        match parse_request(&string).await{
+            Ok(v) => ParsedRequest::from(v),
+            Err(e) => return Err(e)
         }
-    });
-    match stream.local_addr(){
-        Ok(v) => {
-            println!("Connected with {}:{}", v.ip(), v.port());
-        },
-        Err(e) => {
-            eprintln!("{} Error getting local address: {}", ERROR,e);
-        }
-    }
+    };
     match parsed_req.request{
-        Request::GET|Request::POST =>{
-            if parsed_req.password.is_none(){
+        Request::GET|Request::POST =>
+        {
+            if let None = parsed_req.password{
                 return Err(ConnectionError::NoPassword);
             }
-            let response : String;
-            match get_response(parsed_req.clone(), db).await{
-                Ok(v) => {
-                    response = v;
-                }
-                Err(e) => {
-                    response = RequestError::to_response(e);
-                }
+            let response = match get_response(parsed_req.clone(), db).await{
+                Ok(v) => v,
+                Err(e) => RequestError::to_response(e)
+            };
+            if let Err(_) = stream.write_all(response.as_bytes()){
+                return Err(ConnectionError::WritingError);
             }
-            match stream.write_all(response.as_bytes()){
-                Ok(_) => {
-                    println!("{} Handled Request\n===", SUCCESS);
-                }
-                Err(_) => {
-                    return Err(ConnectionError::WritingError);
-                }
+            else{
+                cli::print_success("Handled Request");
             }
         }
         _ => {}
     }
-    Ok(())
+    return Ok(());
 }
 
 async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, RequestError>{
-    match parsed_request.request{
+    match parsed_request.request
+    {
         Request::GET => {
             match parsed_request.request_number{
                 0 => {
                     return Err(RequestError::UnknownRequestError);
                 }
-                1 => {
+                1 => 
+                {
                     // GET Lessons for this Day 
                     let teacher = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
@@ -423,21 +229,15 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             return Err(RequestError::DatabaseError);
                         }
                     };
-                    for result in product_iter{
-                        match result{
-                            Ok((class_id, classroom_id, subject_id, lesson_number)) => {
-                                if class_id.is_some()&&classroom_id.is_some()
-                                    &&subject_id.is_some()&&lesson_number.is_some(){
-                                    let (u_class, u_classroom, u_subject, u_lesson) = 
-                                        (class_id.unwrap(), classroom_id.unwrap(), 
-                                         subject_id.unwrap(), lesson_number.unwrap());
-                                        return Ok(format!("200 OK {};{};{};{};", u_class,u_classroom,u_subject,u_lesson));
-                                }
-                                else{
-                                    return Err(RequestError::NoDataFoundError);
-                                }
+                    for result in product_iter
+                    {
+                        if let Ok(tuple) = result 
+                        {
+                            if let (Some(class_id), Some(classroom_id), Some(subject_id), Some(lesson_number)) = tuple 
+                            {
+                                return Ok(format!("200 OK {};{};{};{};", class_id,classroom_id,subject_id,lesson_number));
                             }
-                            Err(_) => {
+                            else{
                                 return Err(RequestError::NoDataFoundError);
                             }
                         }
@@ -458,34 +258,29 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             return Err(RequestError::DatabaseError);
                         } 
                     };
-                    let stmt = match query.query_map([&current_time_hhmm, &current_time_hhmm],|row| {
-                        Ok((
+                    let stmt = { 
+                        if let Ok(v) = query.query_row([&current_time_hhmm, &current_time_hhmm],|row| 
+                        {
+                            Ok((
                                 quick_match(row.get::<usize, String>(1)),
                                 quick_match(row.get::<usize, String>(2)),
-                        ))
-                    }){
-                        Ok(v) => v,
-                        Err(_) => {
+                            ))
+                        })
+                        {
+                            v
+                        }
+                        else{
                             return Err(RequestError::DatabaseError);
                         }
                     };
-                    let (mut f_end, mut f_start) = ("".to_string(), "".to_string());
-                    for result in stmt{
-                        match result{
-                            Ok((start_time, end_time)) => {
-                                if end_time.is_some()&start_time.is_some() == true{
-                                    let (u_end, u_start) = (end_time.unwrap(), start_time.unwrap());
-                                    (f_end, f_start) = (u_end, u_start);
-                                }
-                                else{
-                                    return Err(RequestError::DatabaseError);
-                                }
+                    let (f_end, f_start) = match stmt{
+                            (Some(start_time), Some(end_time)) => {
+                                (end_time, start_time)
                             }
-                            Err(_) => {
+                            (None, None)|_ => {
                                 return Err(RequestError::NoDataFoundError);
                             }
-                        }
-                    }
+                    };
                     if f_end.is_empty()&f_start.is_empty() == false{
                         return Ok(format!("200 OK {};{}", f_start, f_end));
                     }
@@ -565,7 +360,6 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     };
                     let iter = match stmt.query_map([chrono::Local::now().weekday() as u8 + 1, lesson_hour, teacher_id], |row| {
                         Ok((
-                                // classroom and class
                                 quick_match(row.get::<usize, u8>(5)),
                                 quick_match(row.get::<usize, u8>(1))
                         ))
@@ -651,9 +445,6 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         quick_match(str::parse::<u8>(&parsed_request.content[4].trim())), 
                         quick_match(str::parse::<u8>(&parsed_request.content[5].trim()))
                     );
-                    for index in 0..parsed_request.content.len(){
-                        println!("{} : {}", index, parsed_request.content[index]);
-                    }
                     if class_id.is_some()&&classroom_id.is_some()&&subject_id.is_some()&&teacher_id.is_some()
                         &&lesson_number.is_some()&&week_day.is_some()
                     {
@@ -842,10 +633,10 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
 }
 
 fn quick_match<T, E>(statement: Result<T, E>) -> Option<T>
-where T: std::fmt::Display, E: std::fmt::Display{
+{
     match statement{
-        Ok(v) => {println!("Value of quick_match: {}", v);return Some(v);},
-        Err(e) => {eprintln!("Error from quick_match: {}", e);return None;}
+        Ok(v) => return Some(v),
+        Err(_) => return None
     }
 }
 fn format_two_digit_time(time1: u8, time2: u8) -> String{
@@ -916,10 +707,6 @@ async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<Strin
     for word in &sliced_input[3..]{
         if word.contains("password=") && password.is_none(){
             password = Some(word[9..].to_string());
-            println!("{}", word[9..].to_string());
-        }
-        else if word.contains("password=") && password.is_some(){
-            println!("{} Password was provided more than once!", ERROR);
         }
         else if word.is_empty() == false{
             content.push(word.to_string());

@@ -1,5 +1,5 @@
 [package]
-name = "server"
+name = "app_server"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,4 +9,3 @@ rusqlite = {version = "0.32.1", features=["bundled"]}
 serde = {version="1.0.216",features=["derive"]}
 tokio = {version="1.42.0",features=["full"]}
 toml = "0.8.19"
-mhs = {version = "0.1.0", path="../http_server"}

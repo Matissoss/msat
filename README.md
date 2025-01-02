@@ -15,7 +15,7 @@ project is approximately **~60%** done before stable version 1.0.
 
 **msat**/**msatc** are FOSS (free and open-source) school administration tools.
 **msat** is application-server for **msatc** consisting of: 
-**[server](server)** and **[admin dashboard](http_server)**
+**[app server](app_server)** and **[admin dashboard](admin_dashboard)**
 
 **msatc** is client for **msat** made exclusively for mobile platforms (TODO).
 
@@ -53,9 +53,9 @@ uses 64-bit x86 - x86_64).
         - 1. use command: `sh build.sh`
 2. Building using **cargo**/**rustc**:
      This is ***NOT*** recommended way to build **msat**, because it requires more effort that is automated with **build.sh** script, but if you want:
-   1. Compile *http_server*/*server directory* using `cargo build --release`,
+   1. Compile *admin_dashboard/app_server directory* using `cargo build --release`,
    2. Add directory where you want your server to be stored,
-   3. Clone directory named **web** in *http_server* into directory you made,
+   3. Clone directory named **web** in *admin_dashboard* into directory you made,
    4. ***(OPTIONAL)*** Compress build directory using `tar`, `winrar` or your favourite compression software.
 ## msatc 
 > **msatc**'s development is not started yet
