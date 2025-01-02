@@ -22,8 +22,8 @@ W miejsce "WSTAW_HASŁO" wstaw wybrane przez ciebie hasło. **Hasło MUSI/MOŻE 
 z nim. 
 Jeśli jeszcze nie chcesz wstawiać IPv4, wstaw w to miejsce: "127.0.0.1" (lokalne IPv4, tylko dostępne przez LAN).
 
-5. Teraz, uruchom binarkę/plik wykonywalny nazwany: `mhs-bin` i `server`  w tym samym momencie
-    a) Jeśli używając powłoki bash-compatible/terminal: `./mhs-bin & ./server`,
+5. Teraz, uruchom binarkę/plik wykonywalny nazwany: `admin_dashboard` i `app_server`  w tym samym momencie
+    a) Jeśli używając powłoki bash-compatible/terminal: `./admin_dashboard & ./app_server`,
     b) Jeśli na Windows/Linux z Środowiskiem Graficznym (nie w trybie tekstowym) otwórz je jedno po drugim.
 6. Połącz się z panelem administratorskim **msat** poprzez wstawienie w przeglądrkę następującego URL: "localhost:8000" 
 (jeśli ustawiłeś ip_addr na "127.0.0.1")

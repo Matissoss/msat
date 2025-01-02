@@ -21,8 +21,8 @@ In place of "INSERT_PASSWORD" insert your password of choice. **Password MUST BE
 ***(OPTIONAL)*** In place of "INSERT_IPv4" insert correct IPv4, preferably public one, so any device can connect to it. 
 If you don't want to insert IPv4 just yet, insert in this place: "127.0.0.1" (local IPv4, only accesible through LAN)..
 
-5. Now, you want to start binary/executable files named: `mhs-bin` and `server` at once
-    a) If using bash-compatible shell/terminal: `./mhs-bin & ./server`,
+5. Now, you want to start binary/executable files named: `admin_dashboard` and `app_server` at once
+    a) If using bash-compatible shell/terminal: `./admin_dashboard & ./app_server`,
     b) If on Windows/Linux with Desktop Enviroment (not in text mode) open them one after another.
 6. Connect to admin dashboard inserting this into your browser URL Search: "localhost:8000" (if you did set ip_addr to "127.0.0.1")
 7. Test if admin dashboard works by executing some commands and insert your password into Input Section. You should get feedback, if it 
