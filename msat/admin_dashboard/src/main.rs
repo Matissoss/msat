@@ -1,60 +1,31 @@
+///====================================
+///         admin_dashboard
+/// This file is responsible for http server
+/// made from scratch with TCP protocol
+///=========================================
+
+// Global imports
 use std::{
-    io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, str::FromStr, sync::Arc
+    io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
 };
-
-const SUCCESS : &str = "HTTP_SERVER: [     OK     ]";
-const ERROR   : &str = "HTTP_SERVER: [    ERROR   ]";
-
 use tokio::sync::Mutex;
 use rusqlite::{self, OpenFlags};
-use serde::{Deserialize, Serialize};
-use toml;
 
-struct Lesson{
-    week_day: u8,
-    class_id: u8,
-    lesson_hour: u8,
-    teacher_id: u8,
-    subject_id: u8,
-    classroom_id: u8
-}
-struct Class{
-    class_id: u8,
-    class_name: String
-}
-struct LessonHour{
-    lesson_num: u8,
-    start_time: u16,
-    end_time: u16,
-}
-struct Teacher{
-    teacher_id: u8,
-    first_name: String,
-    last_name: String
-}
-struct Classroom{
-    classroom_id: u8,
-    classroom_name: String
-}
-struct Subject{
-    subject_id: u8,
-    subject_name: String
-}
-struct Duty{
-    lesson_hour: u8,
-    teacher_id: u8,
-    classroom_id: u8,
-    week_day: u8
-}
+// Local Imports 
+use shared_components::{
+    cli::{
+        self, ERROR, SUCCESS
+    }, database::init, password::get_password, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS
+};
 
 #[tokio::main]
 #[allow(warnings)]
 async fn main(){
-    init(IpAddr::from_str("127.0.0.1").unwrap()).await;
+    init_httpserver(*LOCAL_IP).await;
 }
 
-pub async fn init(ip_addr: IpAddr) {
-    if let Err(_) = init_database().await{
+pub async fn init_httpserver(ip_addr: IpAddr) {
+    if let Err(_) = init(*SQLITE_FLAGS).await{
         std::process::exit(-1);
     };
     let database = Arc::new(Mutex::new(
@@ -645,127 +616,4 @@ fn get_types(line: String) -> Vec<String> {
         }
     }
     types
-}
-fn split_string_by(string: &str, chr: char) -> Vec<String> {
-    let mut temp_buf = vec![];
-    let mut finvec = vec![];
-    for c in string.chars().collect::<Vec<char>>() {
-        if c != chr {
-            temp_buf.push(c);
-        } else {
-            finvec.push(String::from_iter(temp_buf.iter()));
-            temp_buf = vec![];
-        }
-    }
-    if temp_buf.is_empty() == false{
-        finvec.push(String::from_iter(temp_buf.iter()));
-    }
-    finvec
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn test(){
-        let v = split_string_by("dsdasd=dsda", '=');
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0], "dsdasd");
-        assert_eq!(v[1], "dsda");
-    }
-}
-use rusqlite::Connection;
-
-pub async fn init_database() -> Result<(), ()>{
-    match std::fs::read_dir("data"){
-        Ok(_) => {},
-        Err(_) => {
-            match std::fs::create_dir("data"){
-                Ok(_) => {}
-                Err(e)=>{
-                    eprintln!("{} Error creating directory \"data\": {}", ERROR, e);
-                    return Err(());
-                }
-            }
-        }
-    }
-    let database: Connection = match Connection::open("data/database.db"){
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{} Error connecting to database: {}", ERROR, e);
-            return Err(());
-        }
-    };
-    let query = ["CREATE TABLE IF NOT EXISTS LessonHours(
-	lesson_num INTEGER PRIMARY KEY,
-	start_time INTEGER NOT NULL,
-	end_time INTEGER NOT NULL
-    );",
-    "CREATE TABLE IF NOT EXISTS Classes(
-        class_id INTEGER PRIMARY KEY,
-        class_name TEXT NOT NULL
-    );",
-    "CREATE TABLE IF NOT EXISTS Lessons(
-        week_day INTEGER NOT NULL,
-	class_id INTEGER NOT NULL,
-	lesson_hour INTEGER NOT NULL,
-	teacher_id INTEGER NOT NULL,
-	subject_id INTEGER NOT NULL,
-	classroom_id INTEGER NOT NULL,
-	PRIMARY KEY (class_id, lesson_hour, week_day)
-    );",
-    "CREATE TABLE IF NOT EXISTS Teachers(
-	teacher_id INTEGER PRIMARY KEY,
-	first_name TEXT NOT NULL,
-        last_name TEXT NOT NULL
-    );",
-    "CREATE TABLE IF NOT EXISTS Classrooms(
-	classroom_id INTEGER PRIMARY KEY,
-	classroom_name TEXT NOT NULL
-    );",
-    "CREATE TABLE IF NOT EXISTS Subjects(
-	subject_id INTEGER PRIMARY KEY,
-	subject_name TEXT NOT NULL
-    );",
-    "CREATE TABLE IF NOT EXISTS Duties(
-	lesson_hour INTEGER NOT NULL,
-	teacher_id INTEGER NOT NULL,
-	classroom_id INTEGER NOT NULL,
-        week_day INTEGER NOT NULL,
-	PRIMARY KEY (lesson_hour, teacher_id, week_day),
-	FOREIGN KEY (teacher_id) REFERENCES Teachers(teacher_id),
-	FOREIGN KEY (classroom_id) REFERENCES Classrooms(classroom_id),
-	FOREIGN KEY (lesson_hour) REFERENCES LessonHours(lesson_num)
-    );"];
-    for r in query{
-        match database.execute(&r, []){
-            Ok(_) => println!("{} Created Table", SUCCESS),
-            Err(_) => println!("{} Couldn't create Table", ERROR)
-        }
-    }
-    println!("{} Opened database", SUCCESS);
-    return Ok(());
-}
-
-#[derive(Deserialize, Serialize, Default)]
-struct Config{
-    password: String,
-    #[allow(unused)]
-    ip_addr: Option<IpAddr>
-}
-
-async fn get_password() -> Option<String>{
-    if let Ok(v) = tokio::fs::read_to_string("data/config.toml").await{
-        if let Ok(c) = toml::from_str::<Config>(&v){
-            if c.password.is_empty(){
-                return None;
-            }
-            else{
-                return Some(c.password);
-            }
-        }
-    }
-    if let Ok(_) = std::fs::write("data/config.toml",toml::to_string(&Config::default()).unwrap_or("".to_string())){
-    };
-    return None;
 }

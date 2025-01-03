@@ -1,4 +1,4 @@
-use crate::Configuration;
+use crate::types::Configuration;
 
 pub async fn get() -> Result<Option<Configuration>, ()>{
     if let Ok(v) = tokio::fs::read_to_string("data/config.toml").await{

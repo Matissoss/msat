@@ -1,8 +1,7 @@
-/app_server/target
-/app_server/data
-/tc/target
-/admin_dashboard/target
-/admin_dashboard/data
-/build
-/debug
-/shared/target
+/ci/build
+/msat/admin_dashboard/target
+/msat/app_server/target
+/msat/shared_components/target
+/msat/testing_client/target
+/msat/target
+/msatc

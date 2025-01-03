@@ -1,6 +1,6 @@
 /// ===========================================
 ///                 Types.rs
-///     Contains types used in main.rs 
+///     Contains types used in msat 
 /// ===========================================
 use serde::{Serialize, Deserialize};
 use std::net::IpAddr;
@@ -42,6 +42,7 @@ pub enum ConnectionError{
     NoPassword,
     WritingError,
     ResponseError,
+    WrongHeader,
     Other
 }
 
@@ -107,6 +108,9 @@ impl std::fmt::Display for ConnectionError{
             Self::WrongPassword => {
                 writeln!(f, "400: Client provided wrong password.")
             }
+            Self::WrongHeader => {
+                writeln!(f, "400: Client provided wrong header")
+            }
             Self::ResponseError => {
                 writeln!(f, "400: Server was unable to respond to request.")
             }
@@ -118,19 +122,19 @@ impl SendToClient for RequestError{
     fn to_response(input: Self) -> String {
         match input{
             Self::DatabaseError => {
-                "500 Internal Server Error: Server couldn't communicate with database".to_string()
+                "msat/500-Internal-Server-Error&msg=Server+couldn't+communicate+with+database".to_string()
             }
             Self::UnknownRequestError => {
-                "400 Bad Request: Server doesn't implement this request".to_string()
+                "msat/400-Bad-Request&msg=Server+doesn't+implement+this+request".to_string()
             }
             Self::LengthError => {
-                "400 Bad Request: Client provided wrong amount of arguments".to_string()
+                "msat/400-Bad-Request&msg=Client+provided+wrong+amount+of+arguments".to_string()
             }
             Self::NoDataFoundError => {
-                "500 Internal Server Error: Server couldn't provide any data".to_string()
+                "msat/500-Internal-Server-Error&msg=Server+couldn't+provide+any+data".to_string()
             }
             Self::ParseIntError(s) => {
-                format!("400 Bad Request: Client provided string: \"{}\" which couldn't be parsed to 8-bit integer", s)
+                format!("msat/400-Bad-Request&msg=Client+provided+string:+\"{}\"+which+couldn't+be+parsed+to+16-bit+integer", s)
             }
         }
     }
@@ -139,31 +143,34 @@ impl SendToClient for ConnectionError{
     fn to_response(input: Self) -> String {
         match input{
             Self::ResponseError => {
-                "400 Bad Request: Server couldn't provide response to client".to_string()
+                "msat/400-Bad-Request&msg=Server+couldn't+provide+response+to+client".to_string()
             }
             Self::Other => {
-                "0 Unknown: Other".to_string()
+                "msat/0-Unknown&msg=Other".to_string()
             }
             Self::NoVersion => {
-                "400 Bad Request: Client didn't provide version in request".to_string()
+                "msat/400-Bad-Request&msg=Client+didn't+provide+version+in+request".to_string()
             }
             Self::CannotRead => {
-                "500 Internal Server Request: Server couldn't read request sent by client".to_string()
+                "msat/500-Internal-Server-Request&msg=Server+couldn't+read+request+sent+by+client".to_string()
             }
             Self::NoPassword => {
-                "400 Bad Request: Client didn't provide password in request".to_string()
+                "msat/400-Bad-Request&msg=Client+didn't+provide+password+in+request".to_string()
             }
             Self::WrongVersion => {
-                "505 Version not supported: Client provided version that is different from server".to_string()
+                "msat/505-Version-not-supported&msg=Client+provided+version+that+is+different+from+server".to_string()
             }
             Self::WritingError => {
-                "500 Internal Server Request: Server couldn't send response to client".to_string()
+                "msat/500-Internal-Server-Request&msg=Server+couldn't+send+response+to+client".to_string()
             }
             Self::WrongPassword => {
-                "400 Bad Request: Client provided wrong password in POST request".to_string()
+                "msat/400-Bad-Request&msg=Client+provided+wrong+password+in+POST+request".to_string()
             }
             Self::RequestParseError => {
-                "400 Bad Request: Server couldn't parse request sent by client".to_string()
+                "msat/400-Bad-Request&msg=Server+couldn't+parse+request+sent+by+client".to_string()
+            }
+            Self::WrongHeader => {
+                "msat/400-Bad-Request&msg=Client+provided+wrong+header".to_string()
             }
         }
     }
@@ -188,3 +195,41 @@ impl From<(Request, Vec<String>, Option<String>, u8)> for ParsedRequest{
         };
     }
 }
+
+pub struct Lesson{
+    pub week_day: u16,
+    pub class_id: u16,
+    pub lesson_hour: u16,
+    pub teacher_id: u16,
+    pub subject_id: u16,
+    pub classroom_id: u16
+}
+pub struct Class{
+    pub class_id: u16,
+    pub class_name: String
+}
+pub struct LessonHour{
+    pub lesson_num: u8,
+    pub start_time: u16,
+    pub end_time: u16,
+}
+pub struct Teacher{
+    pub teacher_id: u16,
+    pub first_name: String,
+    pub last_name: String
+}
+pub struct Classroom{
+    pub classroom_id: u16,
+    pub classroom_name: String
+}
+pub struct Subject{
+    pub subject_id: u16,
+    pub subject_name: String
+}
+pub struct Duty{
+    pub lesson_hour: u8,
+    pub teacher_id: u16,
+    pub classroom_id: u16,
+    pub week_day: u8
+}
+

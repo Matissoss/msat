@@ -1,10 +1,12 @@
-[package]
-name = "app_server"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+	"app_server",
+	"admin_dashboard",
+	"shared_components",
+	"testing_client"
+]
 
-[dependencies]
-chrono = "0.4.39"
+[workspace.dependencies]
 rusqlite = {version = "0.32.1", features=["bundled"]}
 serde = {version="1.0.216",features=["derive"]}
 tokio = {version="1.42.0",features=["full"]}

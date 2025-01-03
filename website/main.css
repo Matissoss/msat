@@ -1,0 +1,135 @@
+:root{
+	--primary: #1C1C1C;
+	--secondary: #dddddd;
+	--yellow: #fbf236;
+	--red: #ac3232;
+	--blue: #3f3f74;
+	--green: #6abe30;
+}
+@font-face{
+	font-family: sfont;
+	src: url("fonts/Lato-Regular.ttf")
+}
+body{
+	background-color: var(--primary);
+	color: var(--secondary);
+	font-family: sfont;
+}
+* button{
+	font-family: sfont;
+}
+img {
+	width: 18.5vw;
+	height: 18.5vw;
+	display: block;
+	margin: auto;
+	margin-bottom: 0;
+}
+.col{
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	margin: 10vh
+}
+.row{
+	display: flex;
+	flex-direction: row;
+}
+.feat{
+	border: 0.1vw solid var(--secondary);
+	width: 45vw;
+	height: 20vh;
+}
+.feat p{
+	margin: auto;
+	font-size: 125%;
+}
+h1 {
+	margin-top:0;
+	color: var(--green);
+}
+h3{
+	color: var(--yellow)
+}
+header h1, header h3{
+	text-align: center;
+}
+a{
+	color: var(--red);
+}
+header button{
+	display: block;
+	margin-top: 5vh;
+	margin-bottom: 0;
+	border: 0.25vw solid var(--red);
+	border-radius: 25vw;
+	background-color: var(--primary);
+	color: var(--secondary);
+	font-weight: bold;
+	width: 25vw;
+	height: 5vh;
+	font-size: 125%;
+	transition: 0.125s all;
+}
+header button:hover{
+	color: var(--secondary);
+	border-color: var(--red);
+	background-color: var(--red);
+	cursor: pointer;
+}
+.but-less{
+	background-color: var(--red);
+	transition: 0.25s all;
+}
+.but-less:hover{
+	background-color: var(--blue);
+	border-color: var(--blue)
+}
+.head-but{
+	display: flex;
+	flex-direction: row;
+	justify-content: center;
+}
+header h1{
+	font-size: 450%;
+	margin-bottom: 0;
+}
+header h3{
+	margin-top: 0;
+}
+footer{
+	text-align: center;
+}
+
+@media only screen and (max-width: 900px){
+	header button{
+		width: 90vw;
+		height: 7vh;
+		border: solid 1.25vw var(--red);
+	}
+	img{
+		width: 70vw;
+		height: 70vw;
+	}
+	.row{
+		flex-direction: column;
+	}
+	.feat{
+		height: 60vh;
+		width: 90vw;
+	}
+	.feat p{
+		font-size: 3.5vh;
+	}
+	.feat h1{
+		font-size: 5vh;
+	}
+	.head-but{
+		flex-direction: column;
+	}
+}
+@media only screen and (min-width: 900px) and (max-width: 1200px){
+	.feat{
+		height: 50vh;
+	}
+}

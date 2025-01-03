@@ -49,10 +49,12 @@ uses 64-bit x86 - x86_64).
     
 1. Clone repo with **git** (`git clone https://github.com/Matissoss/msat.git`) or download source code from releases section,
 ### Now, there are two ways to build **msat** from scratch:
-1. Building using official **build.sh** script:
-        - 1. use command: `sh build.sh`
+1. Building using official **local-build.sh** script:
+        - 1. go into `ci` directory,
+        - 2. use command: `sh local-build.sh`
 2. Building using **cargo**/**rustc**:
-     This is ***NOT*** recommended way to build **msat**, because it requires more effort that is automated with **build.sh** script, but if you want:
+     This is ***NOT*** recommended way to build **msat**, because it requires more effort that is automated with **local-build.sh** script, 
+     but if you want:
    1. Compile *admin_dashboard/app_server directory* using `cargo build --release`,
    2. Add directory where you want your server to be stored,
    3. Clone directory named **web** in *admin_dashboard* into directory you made,
@@ -62,9 +64,9 @@ uses 64-bit x86 - x86_64).
 
 # License
 
-**msat** and **msatc** are distributed under either of these two Licenses:
-- MPL 2.0 (Mozilla Public License 2.0) ([MPL](LICENSE-MPL.md)),
-- Apache License 2.0 ([Apache](LICENSE-APACHE.md))
+**msat** and **msatc** and all components included in this repo (except logos in `/promo/` directory) are 
+
+licensed under [**MPL 2.0 (Mozilla Public License)**](LICENSE)
 
 # Credits
 
