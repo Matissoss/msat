@@ -197,39 +197,43 @@ impl From<(Request, Vec<String>, Option<String>, u8)> for ParsedRequest{
 }
 
 pub struct Lesson{
-    pub week_day: u16,
-    pub class_id: u16,
-    pub lesson_hour: u16,
-    pub teacher_id: u16,
-    pub subject_id: u16,
-    pub classroom_id: u16
+    pub week_day     : u8,
+    pub class_id     : u16,
+    pub lesson_hour  : u8,
+    pub teacher_id   : u16,
+    pub subject_id   : u16,
+    pub classroom_id : u16
 }
 pub struct Class{
-    pub class_id: u16,
-    pub class_name: String
+    pub class_id   : u16,
+    pub class_name : String
 }
 pub struct LessonHour{
-    pub lesson_num: u8,
-    pub start_time: u16,
-    pub end_time: u16,
+    pub lesson_num : u8,
+    pub start_time : u16,
+    pub end_time   : u16,
 }
 pub struct Teacher{
-    pub teacher_id: u16,
-    pub first_name: String,
-    pub last_name: String
+    pub teacher_id : u16,
+    pub first_name : String,
+    pub last_name  : String
 }
 pub struct Classroom{
-    pub classroom_id: u16,
-    pub classroom_name: String
+    pub classroom_id   : u16,
+    pub classroom_name : String
 }
 pub struct Subject{
-    pub subject_id: u16,
-    pub subject_name: String
+    pub subject_id   : u16,
+    pub subject_name : String
 }
 pub struct Duty{
-    pub lesson_hour: u8,
-    pub teacher_id: u16,
-    pub classroom_id: u16,
-    pub week_day: u8
+    pub break_num   : u8,
+    pub teacher_id  : u16,
+    pub break_place : String,
+    pub week_day    : u8
 }
-
+pub struct BreakHours{
+    pub break_num  : u8,
+    pub start_time : u16,
+    pub end_time   : u16
+}

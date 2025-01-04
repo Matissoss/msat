@@ -6,10 +6,10 @@
 
 // Global imports
 use std::{
-    io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
+    collections::{BTreeMap, HashMap}, io::{Read, Write}, iter::successors, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
 };
 use tokio::sync::Mutex;
-use rusqlite::{self, OpenFlags};
+use rusqlite::{self, OpenFlags, ToSql};
 
 // Local Imports 
 use shared_components::{
@@ -61,7 +61,8 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
     if let Ok(len) = stream.read(&mut buffer) {
         if len == 0 {
         } else {
-            let request = String::from_utf8_lossy(&buffer).to_string();
+            let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
+            println!("{:?}", request);
             let lines = request
                 .lines()
                 .filter(|s| s.is_empty() == false)
@@ -90,10 +91,10 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                                 let cloned_dbptr = Arc::clone(&db_ptr);
                                 let response = handle_custom_request(&w, cloned_dbptr).await;
                                 match stream.write_all(
-                                    format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:application/xml\r\n\r\n{}",
+                                    format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type: application/xml\r\n\r\n{}",
                                         response.len(), response).as_bytes())
                                 {
-                                    Ok(_) => print!("\n---\nResponsed To Request"),
+                                    Ok(_) => print!("\n---\nResponsed To Request\n"),
                                     Err(_) => print!("\n---\nCouldn't Respond")
                                 };
                             }
@@ -196,6 +197,190 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
     match request_type.as_str(){
         "GET" => {
             match request_number{
+                0 => {
+                    let database = db.lock().await;
+                    let query = "SELECT * FROM Lessons";
+                    if let Ok(mut stmt) = database.prepare(&query){
+                        if let Ok(iter) = stmt.query_map([], |row| {
+                            Ok(Lesson{
+                                week_day: row.get(0).unwrap_or(0),
+                                class_id: row.get(1).unwrap_or(0),
+                                lesson_hour: row.get(2).unwrap_or(0),
+                                teacher_id: row.get(3).unwrap_or(0),
+                                subject_id: row.get(4).unwrap_or(0),
+                                classroom_id: row.get(5).unwrap_or(0)
+                            })
+                        })
+                        {
+                            let class_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Classes"){
+                                Ok(mut stmt) => {
+                                    let iter = stmt.query_map([], |row| {
+                                        Ok(
+                                            Class{
+                                                class_id: row.get(0).unwrap_or(0),
+                                                class_name: row.get(1).unwrap_or("".to_string())
+                                            }
+                                        )
+                                    });
+
+                                    if let Ok(ok_iter) = iter{
+                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
+                                            .map(|s| s.unwrap())
+                                            .filter(|s| s.class_id!=0&&s.class_name.as_str()!="")
+                                            .collect::<Vec<Class>>();
+                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
+                                        for class in filtered_iter{
+                                            finhashmap.insert(class.class_id, class.class_name);
+                                        }
+                                        finhashmap
+                                    }
+                                    else{
+                                        HashMap::new()
+                                    }
+                                }
+                                Err(_) => return "".to_string()
+                            };
+                            let teacher_hashmap : HashMap<u16, (String, String)> = match database.prepare("SELECT * FROM Teachers"){
+                                Ok(mut stmt) => {
+                                    let iter = stmt.query_map([], |row| {
+                                        Ok(
+                                            Teacher{
+                                                teacher_id: row.get(0).unwrap_or(0),
+                                                first_name: row.get(1).unwrap_or("".to_string()),
+                                                last_name: row.get(2).unwrap_or("".to_string())
+                                            }
+                                        )
+                                    });
+
+                                    if let Ok(ok_iter) = iter{
+                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
+                                            .map(|s| s.unwrap())
+                                            .filter(|s| s.teacher_id!=0&&s.first_name.as_str()!=""&&s.last_name.as_str()!="")
+                                            .collect::<Vec<Teacher>>();
+                                        let mut finhashmap : HashMap<u16, (String, String)> = HashMap::new();
+                                        for teacher in filtered_iter{
+                                            finhashmap.insert(teacher.teacher_id, (teacher.first_name, teacher.last_name));
+                                        }
+                                        finhashmap
+                                    }
+                                    else{
+                                        HashMap::new()
+                                    }
+                                }
+                                Err(_) => return "".to_string()
+                            };
+                            let subject_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Subjects"){
+                                Ok(mut stmt) => {
+                                    let iter = stmt.query_map([], |row| {
+                                        Ok(
+                                            Subject{
+                                                subject_id: row.get(0).unwrap_or(0),
+                                                subject_name: row.get(1).unwrap_or("".to_string())
+                                            }
+                                        )
+                                    });
+
+                                    if let Ok(ok_iter) = iter{
+                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
+                                            .map(|s| s.unwrap())
+                                            .filter(|s| s.subject_id!=0&&s.subject_name.as_str()!="")
+                                            .collect::<Vec<Subject>>();
+                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
+                                        for s in filtered_iter{
+                                            finhashmap.insert(s.subject_id, s.subject_name);
+                                        }
+                                        finhashmap
+                                    }
+                                    else{
+                                        HashMap::new()
+                                    }
+                                }
+                                Err(_) => return "".to_string()
+                            };
+                            let classroom_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Classrooms"){
+                                Ok (mut stmt) => {
+                                    let iter = stmt.query_map([], |row| {
+                                        Ok(
+                                            Classroom{
+                                                classroom_id: row.get(0).unwrap_or(0),
+                                                classroom_name: row.get(1).unwrap_or("".to_string())
+                                            }
+                                        )
+                                    });
+                                    if let Ok(ok_iter) = iter{
+                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
+                                            .map(|s| s.unwrap())
+                                            .filter(|s| s.classroom_id!=0&&s.classroom_name.as_str()!="")
+                                            .collect::<Vec<Classroom>>();
+                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
+                                        for classroom in filtered_iter{
+                                            finhashmap.insert(classroom.classroom_id, classroom.classroom_name);
+                                        }
+                                        finhashmap
+                                    }
+                                    else{
+                                        HashMap::new()
+                                    }
+                                }
+                                Err(_) => return "".to_string()
+                            };
+                            if classroom_hashmap.len() == 0 || classroom_hashmap.len() == 0 || subject_hashmap.len() == 0{
+                                return "<db_col><db_row><p>Nie znaleziono Danych</p><p>No Data found</p></db_row></db_col>".to_string();
+                            }
+                            let filtered_iter : Vec<Lesson> 
+                                = iter.filter(|s| s.is_ok())
+                                .map(|s| s.unwrap())
+                                .filter(|s| 
+                                s.class_id!=0&&s.lesson_hour!=0&&s.teacher_id!=0&&s.subject_id!=0
+                                &&s.classroom_id!=0&&s.week_day!=0)
+                                .collect();
+                            let mut to_return : String = String::from("");                    
+                            let mut sorted_map : BTreeMap<(u16, u8, u8), (u16, u16, u16)> = BTreeMap::new();
+                            for lesson in filtered_iter{
+                                let (ci, wd, lh, si, cli, ti) = 
+                                (lesson.class_id, lesson.week_day, lesson.lesson_hour,
+                                 lesson.subject_id, lesson.classroom_id, lesson.teacher_id);
+                                sorted_map.insert((ti, wd, lh), (si, cli, ci));
+                            }
+                            let (mut lc, mut llh) = (&0, &0);
+                            for (class, _, lessonh) in sorted_map.keys(){
+                                if lc < class{
+                                    lc = class;
+                                }
+                                if llh < lessonh {
+                                    llh = lessonh;
+                                }
+                            }
+                            for teacher in 1..=*lc{
+                                let (first_name, last_name) : (String, String) = match teacher_hashmap.get(&teacher)
+                                {
+                                    Some(s) => s.clone(),
+                                    None => {
+                                        (teacher.to_string(), "".to_string())
+                                    }
+                                };
+                                to_return.push_str(&format!("<class id='{teacher}'><p>{} {}</p><w>\n", 
+                                        first_name, last_name));
+                                for weekd in 1..=7u8{
+                                    to_return.push_str(&format!("   <weekd id='w{weekd}'><p>{}</p>\n", weekd_to_string(weekd)));
+                                    for lesson_num in 1..=*llh{
+                                        if let Some((si, cli, ci)) = sorted_map.get(&(teacher, weekd, lesson_num)){
+                                            to_return.push_str(
+                                                &format!("       <lesson><p><strong>Lekcja/Lesson {lesson_num}</strong></p><p>{}</p><p>{}</p><p>{}</p></lesson>\n",
+                                                    subject_hashmap.get(si).unwrap_or(&si.to_string()),
+                                                    class_hashmap.get(ci).unwrap_or(&ci.to_string()),
+                                                    classroom_hashmap.get(cli).unwrap_or(&cli.to_string())));
+                                        }
+                                    }
+                                    to_return.push_str("    </weekd>\n");
+                                }
+                                to_return.push_str("</w></class>\n");
+                            }
+                            return to_return;
+                        };
+                    };
+
+                }
                 1 => {
                     let database = db.lock().await;
                     let query = "SELECT * FROM Lessons";
@@ -211,32 +396,169 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                             })
                         })
                         {
+                            let class_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Classes"){
+                                Ok(mut stmt) => {
+                                    let iter = stmt.query_map([], |row| {
+                                        Ok(
+                                            Class{
+                                                class_id: row.get(0).unwrap_or(0),
+                                                class_name: row.get(1).unwrap_or("".to_string())
+                                            }
+                                        )
+                                    });
+
+                                    if let Ok(ok_iter) = iter{
+                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
+                                            .map(|s| s.unwrap())
+                                            .filter(|s| s.class_id!=0&&s.class_name.as_str()!="")
+                                            .collect::<Vec<Class>>();
+                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
+                                        for class in filtered_iter{
+                                            finhashmap.insert(class.class_id, class.class_name);
+                                        }
+                                        finhashmap
+                                    }
+                                    else{
+                                        HashMap::new()
+                                    }
+                                }
+                                Err(_) => return "".to_string()
+                            };
+                            let teacher_hashmap : HashMap<u16, (String, String)> = match database.prepare("SELECT * FROM Teachers"){
+                                Ok(mut stmt) => {
+                                    let iter = stmt.query_map([], |row| {
+                                        Ok(
+                                            Teacher{
+                                                teacher_id: row.get(0).unwrap_or(0),
+                                                first_name: row.get(1).unwrap_or("".to_string()),
+                                                last_name: row.get(2).unwrap_or("".to_string())
+                                            }
+                                        )
+                                    });
+
+                                    if let Ok(ok_iter) = iter{
+                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
+                                            .map(|s| s.unwrap())
+                                            .filter(|s| s.teacher_id!=0&&s.first_name.as_str()!=""&&s.last_name.as_str()!="")
+                                            .collect::<Vec<Teacher>>();
+                                        let mut finhashmap : HashMap<u16, (String, String)> = HashMap::new();
+                                        for teacher in filtered_iter{
+                                            finhashmap.insert(teacher.teacher_id, (teacher.first_name, teacher.last_name));
+                                        }
+                                        finhashmap
+                                    }
+                                    else{
+                                        HashMap::new()
+                                    }
+                                }
+                                Err(_) => return "".to_string()
+                            };
+                            let subject_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Subjects"){
+                                Ok(mut stmt) => {
+                                    let iter = stmt.query_map([], |row| {
+                                        Ok(
+                                            Subject{
+                                                subject_id: row.get(0).unwrap_or(0),
+                                                subject_name: row.get(1).unwrap_or("".to_string())
+                                            }
+                                        )
+                                    });
+
+                                    if let Ok(ok_iter) = iter{
+                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
+                                            .map(|s| s.unwrap())
+                                            .filter(|s| s.subject_id!=0&&s.subject_name.as_str()!="")
+                                            .collect::<Vec<Subject>>();
+                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
+                                        for s in filtered_iter{
+                                            finhashmap.insert(s.subject_id, s.subject_name);
+                                        }
+                                        finhashmap
+                                    }
+                                    else{
+                                        HashMap::new()
+                                    }
+                                }
+                                Err(_) => return "".to_string()
+                            };
+                            let classroom_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Classrooms"){
+                                Ok (mut stmt) => {
+                                    let iter = stmt.query_map([], |row| {
+                                        Ok(
+                                            Classroom{
+                                                classroom_id: row.get(0).unwrap_or(0),
+                                                classroom_name: row.get(1).unwrap_or("".to_string())
+                                            }
+                                        )
+                                    });
+                                    if let Ok(ok_iter) = iter{
+                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
+                                            .map(|s| s.unwrap())
+                                            .filter(|s| s.classroom_id!=0&&s.classroom_name.as_str()!="")
+                                            .collect::<Vec<Classroom>>();
+                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
+                                        for classroom in filtered_iter{
+                                            finhashmap.insert(classroom.classroom_id, classroom.classroom_name);
+                                        }
+                                        finhashmap
+                                    }
+                                    else{
+                                        HashMap::new()
+                                    }
+                                }
+                                Err(_) => return "".to_string()
+                            };
+                            if classroom_hashmap.len() == 0 || classroom_hashmap.len() == 0 || subject_hashmap.len() == 0{
+                                return "<db_col><db_row><p>Nie znaleziono Danych</p><p>No Data found</p></db_row></db_col>".to_string();
+                            }
                             let filtered_iter : Vec<Lesson> 
                                 = iter.filter(|s| s.is_ok())
                                 .map(|s| s.unwrap())
-                                .filter(|s| s.class_id!=0&&s.lesson_hour!=0&&s.teacher_id!=0&&s.subject_id!=0&&s.classroom_id!=0&&s.week_day!=0)
+                                .filter(|s| 
+                                s.class_id!=0&&s.lesson_hour!=0&&s.teacher_id!=0&&s.subject_id!=0
+                                &&s.classroom_id!=0&&s.week_day!=0)
                                 .collect();
-                            let mut to_return : String = String::from("<db_col>
-                                <db_row>
-                                <p id = \"1\">Week Day</p>
-                                <p id = \"2\">Teacher ID</p>
-                                <p id = \"3\">Class ID</p>
-                                <p id = \"4\">Classroom ID</p>
-                                <p id = \"5\">Subject ID</p>
-                                <p id = \"6\">Lesson Hour</p>
-                                </db_row>");
-                            for e in filtered_iter{
-                                to_return.push_str(
-                                    format!("<db_row>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p></db_row>", e.week_day,e.teacher_id,e.class_id,e.classroom_id,e.subject_id,e.lesson_hour).as_str()
-                                );
+                            let mut to_return : String = String::from("");                    
+                            let mut sorted_map : BTreeMap<(u16, u8, u8), (u16, u16, u16)> = BTreeMap::new();
+                            for lesson in filtered_iter{
+                                let (ci, wd, lh, si, cli, ti) = 
+                                (lesson.class_id, lesson.week_day, lesson.lesson_hour,
+                                 lesson.subject_id, lesson.classroom_id, lesson.teacher_id);
+                                sorted_map.insert((ci, wd, lh), (si, cli, ti));
                             }
-                            to_return.push_str("</db_col>");
+                            let (mut lc, mut llh) = (&0, &0);
+                            for (class, _, lessonh) in sorted_map.keys(){
+                                if lc < class{
+                                    lc = class;
+                                }
+                                if llh < lessonh {
+                                    llh = lessonh;
+                                }
+                            }
+                            for class in 1..=*lc{
+                                to_return.push_str(&format!("<class id='{class}'><p>{}</p><w>\n", 
+                                        class_hashmap.get(&class).unwrap_or(&class.to_string())));
+                                for weekd in 1..=7u8{
+                                    to_return.push_str(&format!("   <weekd id='w{weekd}'><p>{}</p>\n", weekd_to_string(weekd)));
+                                    for lesson_num in 1..=*llh{
+                                        if let Some((si, cli, ti)) = sorted_map.get(&(class, weekd, lesson_num)){
+                                            let (first_name, last_name) : (String, String) = match teacher_hashmap.get(ti){
+                                                Some(s) => s.clone(),
+                                                None => {
+                                                    (ti.to_string(), "".to_string())
+                                                }
+                                            };
+                                            to_return.push_str(
+                                                &format!("       <lesson id ='{lesson_num}'><p>{}</p><p>{} {}</p><p>{}</p></lesson>\n",
+                                                    subject_hashmap.get(si).unwrap_or(&si.to_string()),
+                                                    first_name, last_name,
+                                                    classroom_hashmap.get(cli).unwrap_or(&cli.to_string())));
+                                        }
+                                    }
+                                    to_return.push_str("    </weekd>\n");
+                                }
+                                to_return.push_str("</w></class>\n");
+                            }
                             return to_return;
                         };
                     };
@@ -283,9 +605,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                     if let Ok(mut stmt) = database.prepare(&query){
                         if let Ok(iter) = stmt.query_map([], |row| {
                             Ok(Duty{
-                                lesson_hour: row.get(0).unwrap_or(0),
+                                break_num: row.get(0).unwrap_or(0),
                                 teacher_id: row.get(1).unwrap_or(0),
-                                classroom_id: row.get(2).unwrap_or(0),
+                                break_place: row.get(2).unwrap_or(0.to_string()),
                                 week_day: row.get(3).unwrap_or(0),
                             })
                         })
@@ -293,13 +615,13 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                             let filtered_iter : Vec<Duty> 
                                 = iter.filter(|s| s.is_ok())
                                 .map(|s| s.unwrap())
-                                .filter(|s| s.lesson_hour!=0&&s.teacher_id!=0&&s.classroom_id!=0&&s.week_day!=0)
+                                .filter(|s| s.break_num!=0&&s.teacher_id!=0&&&s.break_place!=""&&s.week_day!=0)
                                 .collect();
                             let mut to_return : String = String::from("<db_col>
                                 <db_row>
-                                <p id='1'>Lesson Hour</p>
+                                <p id='1'>Break Number</p>
                                 <p id='2'>Teacher ID</p>
-                                <p id='3'>Classroom ID</p>
+                                <p id='3'>Break Place</p>
                                 <p id='4'>Week Day</p>
                                 </db_row>");
                             for e in filtered_iter{
@@ -308,7 +630,7 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                     <p>{}</p>
                                     <p>{}</p>
                                     <p>{}</p>
-                                    <p>{}</p></db_row>", e.lesson_hour,e.teacher_id,e.classroom_id,e.week_day).as_str()
+                                    <p>{}</p></db_row>", e.break_num,e.teacher_id,e.week_day,e.week_day).as_str()
                                 );
                             }
                             to_return.push_str("</db_col>");
@@ -451,12 +773,73 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                         };
                     };
                 }
+                8 => {
+                    let database = db.lock().await;
+                    let query = "SELECT * FROM BreakHours";
+                    if let Ok(mut stmt) = database.prepare(&query){
+                        if let Ok(iter) = stmt.query_map([], |row| {
+                            Ok(BreakHours{
+                                break_num: row.get(0).unwrap_or(0),
+                                start_time: row.get(1).unwrap_or(0),
+                                end_time: row.get(2).unwrap_or(0)
+                            })
+                        })
+                        {
+                            let filtered_iter : Vec<BreakHours> 
+                                = iter.filter(|s| s.is_ok())
+                                .map(|s| s.unwrap())
+                                .filter(|s| s.break_num!=0&&s.start_time!=0&&s.end_time!=0)
+                                .collect();
+                            let mut to_return : String = String::from("<db_col>
+                                <db_row>
+                                <p id='1'>Break Number</p>
+                                <p id='2'>Start Time</p>
+                                <p id='3'>End Time</p>
+                                </db_row>");
+                            for e in filtered_iter{
+                                to_return.push_str(
+                                    format!("<db_row>
+                                    <p>{}</p>
+                                    <p>{}</p>
+                                    <p>{}</p></db_row>", e.break_num,e.start_time,e.end_time).as_str()
+                                );
+                            }
+                            to_return.push_str("</db_col>");
+                            return to_return;
+                        };
+                    };
+                }
                 _ => {
                 }
             }
         }
         "POST" => {
             match request_number{
+                0 => {
+                    let query = "INSERT INTO BreakHours 
+                        (break_num, start_time, end_time)
+                        VALUES (?1, ?2, ?3)
+                        ON CONFLICT (break_num)
+                        DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time";
+                    let (break_num, start_time, end_time) = 
+                        (
+                            str::parse::<u8>(args[0].trim()), str::parse::<u16>(args[1].trim()),
+                            str::parse::<u16>(args[2].trim())
+                        );
+                    if let (Ok(break_num1), Ok(start_time1), Ok(end_time1)) = (break_num, start_time, end_time){
+                        let database = db.lock().await;
+                        match database.execute(&query, [break_num1.into(), start_time1, end_time1]){
+                            Ok(_) => {
+                                return 
+                                    "<db_col><db_row><p>Pomyślnie dodano dane do bazy danych</p>
+                                    <p>Successfully added data to database</p></db_row></db_col>".to_string()
+                            }
+                            Err(_) => {
+                            }
+                        }
+                    }
+                    return "<db_col><db_row><p>Napotkano błąd</p><p>Error occured</p></db_row></db_col>".to_string()
+                }
                 1 => {
                     let query = "INSERT INTO Lessons 
                             (week_day, class_id, classroom_id, subject_id, teacher_id, lesson_hour) 
@@ -616,4 +999,48 @@ fn get_types(line: String) -> Vec<String> {
         }
     }
     types
+}
+
+fn weekd_to_string(weekd: u8) -> String{
+    match weekd{
+        1 => "Mon.".to_string(),
+        2 => "Tue.".to_string(),
+        3 => "Wed.".to_string(),
+        4 => "Thr.".to_string(),
+        5 => "Fri.".to_string(),
+        6 => "Sat.".to_string(),
+        7 => "Sun.".to_string(),
+        _ => "Unk.".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    #[test]
+    fn parse(){
+        let mut to_return : String = String::from("");                    
+        let mut sorted_map : BTreeMap<(u16, u8, u8), (u16, u16, u16)> = BTreeMap::new();
+        let (mut lc, mut llh) = (&0, &0);
+        for (class, _, lessonh) in sorted_map.keys(){
+            if lc < class{
+                lc = class;
+            }
+            if llh < lessonh {
+                llh = lessonh;
+            }
+        }
+        for class in 1..=2{
+            to_return.push_str(&format!("<class id='{class}'>\n"));
+            for weekd in 1..=2u8{
+                to_return.push_str(&format!("   <weekd id='{}'>\n", weekd_to_string(weekd)));
+                for lesson_num in 1..=2u8{
+                    to_return.push_str(&format!("       <lesson id ='{lesson_num}'></lesson>\n"));
+                }
+                to_return.push_str("    </weekd>\n");
+            }
+            to_return.push_str("</class>\n");
+        }
+        println!("{}", to_return);
+    }
 }

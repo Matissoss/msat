@@ -59,8 +59,8 @@ pub async fn init(flags: OpenFlags) -> Result<SQLite, ()>{
     );",
     "CREATE TABLE IF NOT EXISTS BreakHours(
         break_num INTEGER PRIMARY KEY,
-        start_time INTEGER PRIMARY KEY,
-        end_time INTEGER PRIMARY KEY
+        start_time INTEGER NOT NULL,
+        end_time INTEGER NOT NULL
     );",
     "CREATE TABLE IF NOT EXISTS Duties(
 	break_number INTEGER NOT NULL,
@@ -69,7 +69,7 @@ pub async fn init(flags: OpenFlags) -> Result<SQLite, ()>{
         duty_place   TEXT NOT NULL,
 	PRIMARY KEY  (break_number, teacher_id, week_day),
 	FOREIGN KEY  (teacher_id)    REFERENCES Teachers   (teacher_id),
-	FOREIGN KEY  (break_number)  REFERENCES BreakHours (break_num),
+	FOREIGN KEY  (break_number)  REFERENCES BreakHours (break_num)
     );"
     ];
     for query in queries{

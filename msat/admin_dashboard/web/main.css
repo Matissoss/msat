@@ -2,23 +2,45 @@ body{
 	background-color: black;
 	color: white;
 }
-db_col{
+db_col, class, w{
 	display: flex;
 	flex-direction: column;
 }
-db_row{
+db_row, weekd{
 	display: flex;
 	flex-direction: row;
 }
-db_row p{
-	margin: auto;
+class p{
+	width: 97vw;
+	text-align: center;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	height: 7vh;
+	border: solid 0.125vw white;
+}
+db_row p, weekd p, lesson{
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	width: 20vw;
-	height: 5vh;
+	width: 9vw;
+	height: 10vh;
+	margin: 0;
 	text-align: center;
 	border: solid 0.125vw white;
+}
+lesson{
+	height: 10vh;
+	text-align: center;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+}
+lesson p {
+	width: auto;
+	text-align: center;
+	border: 0;
+	margin: auto;
 }
 h1 {text-align: center;}
 #lang{

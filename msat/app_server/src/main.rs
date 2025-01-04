@@ -443,6 +443,21 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         Err(_) => return Err(RequestError::DatabaseError)
                     }
                 }
+                10 => {
+                    match get_break_num(db).await{
+                        Ok(v) => {
+                            if v == 0 {
+                                return Ok("msat/204-No-Content&get=NoBreak".to_string());
+                            }
+                            else{
+                                return Ok(format!("msat/200-OK&get={v}"));
+                            }
+                        }
+                        Err(_) => {
+                            return Err(RequestError::DatabaseError);
+                        }
+                    }
+                }
                 _ => {
                     return Err(RequestError::UnknownRequestError);
                 }
@@ -608,14 +623,20 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[2].clone()))
                     };
-                    let classroom_id = match parsed_request.content[3].parse::<u8>(){
-                        Ok(v) => v,
-                        Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[3].clone()))
+                    let break_place = match parsed_request.content[3].as_str(){
+                        ""  => {
+                            return Err(RequestError::UnknownRequestError);
+                        },
+                        _ => {
+                            &parsed_request.content[3]
+                        }
                     };
                     let database = db.lock().await;
-                    match database.execute("INSERT INTO Duties (lesson_hour, teacher_id, classroom_id, week_day) VALUES (?1, ?2, ?3, ?4)
+                    match database.execute("INSERT INTO Duties (break_num, teacher_id, duty_place, week_day,) 
+                    VALUES (?1, ?2, ?3, ?4)
                         ON CONFLICT (lesson_hour, teacher_id, week_day) DO UPDATE SET classroom_id = excluded.classroom_id", 
-                        &[lesson_number.to_string().as_str(), teacher_id.to_string().as_str(), classroom_id.to_string().as_str(), weekday.to_string().as_str()]){
+                        &[lesson_number.to_string().as_str(), teacher_id.to_string().as_str(), 
+                        break_place.to_string().as_str(), weekday.to_string().as_str()]){
                         Ok(_) => return Ok("msat/201-Created".to_string()),
                         Err(_) => {
                             return Err(RequestError::DatabaseError)
@@ -639,6 +660,22 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         Ok(_) => {return Ok("msat/201-Created".to_string())},
                         Err(_) =>{
                             return Err(RequestError::DatabaseError)
+                        }
+                    }
+                }
+                8 => {
+                    // POST BreakHours - break_num, start_time, end_time
+                    let args = &parsed_request.content;
+                    if let (Ok(break_num), Ok(start_time), Ok(end_time)) = 
+                    (str::parse::<u8>(&args[0]), str::parse::<u16>(&args[1]), str::parse::<u16>(&args[2])){
+                        let query = "INSERT INTO BreakHours (break_num, start_time, end_time) 
+                        VALUES (?1, ?2, ?3) ON CONFLICT (break_num) DO UPDATE SET 
+                        start_time = excluded.start_time, end_time = excluded.end_time";
+                        if let Err(_) = db.lock().await.execute(&query, [break_num.into(), start_time, end_time]){
+                            return Err(RequestError::DatabaseError);
+                        }
+                        else{
+                            return Ok("msat/201-Created".to_string());
                         }
                     }
                 }

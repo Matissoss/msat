@@ -66,7 +66,7 @@ uses 64-bit x86 - x86_64).
 
 **msat** and **msatc** and all components included in this repo (except logos in `/promo/` directory) are 
 
-licensed under [**MPL 2.0 (Mozilla Public License)**](LICENSE)
+licensed under [**X11 (MIT) License**](LICENSE)
 
 # Credits
 

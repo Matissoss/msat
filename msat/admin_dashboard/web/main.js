@@ -19,73 +19,60 @@ $("data").addEventListener('submit', async function (e) {
     .then(response => response.text()) 
     .then(result => {
 	    $("response").innerHTML = result;
-	    if (language == "pl"){
-	    	if (method == 'GET 1'){
-			$("1").innerHTML = "Dzień Tygodnia";
-			$("2").innerHTML = "ID Nauczyciela";
-			$("3").innerHTML = "ID Klasy";
-			$("4").innerHTML = "ID Klasy (pomieszczenie)";
-			$("5").innerHTML = "ID Przedmiotu";
-			$("6").innerHTML = "Godzina Lekcyjna";
-	    	}
-		else if(method == 'GET 2'){
-			$("2").innerHTML = "Imię";
-			$("1").innerHTML = "ID Nauczyciela";
-			$("3").innerHTML = "Nazwisko";
-		}
-		else if (method == 'GET 3'){
-			$("1").innerHTML = "Godzina Lekcyjna";
-			$("2").innerHTML = "ID Nauczyciela";
-			$("3").innerHTML = "ID Klasy (pomieszczenie)";
-			$("4").innerHTML = "Dzień Tygodnia";
-		}
-		else if (method=='GET 4'){
-			$("1").innerHTML = "ID Przedmiotu";
-			$("2").innerHTML = "Nazwa Przedmiotu";
-		}
-		else if (method=='GET 5'){
-			$("1").innerHTML = "ID Klasy";
-			$("2").innerHTML = "Nazwa Klasy";
-		}
-		else if (method=='GET 6'){
-			$("1").innerHTML = "ID Klasy (pomieszczenie)";
-			$("2").innerHTML = "Nazwa Klasy";
-		}
-		else if (method=='GET 7'){
-			$("1").innerHTML = "Numer Lekcji";
-			$("2").innerHTML = "Godzina Rozpoczęcia";
-			$("3").innerHTML = "Godzina Zakończenia";
-		}
-	    }
 	    $("input_args").value = "";
-	    set_width();
+	    if (!method.includes("GET 1")){
+	    	set_width(false);
+	    }
+	    else{
+		    set_width(true);
+	    }
 	    translate(method);
     })
     .catch(() => {
 	    $("response").innerHTML = "<db_col><db_row><p>Server didn't send any data. Check if your request is correct</p><p>Serwer nie wysłał żadnych informacji. Sprawdź czy twoje zapytanie jest poprawne.</p></db_row></db_col>";
-	    set_width();
+	    set_width(false);
     });
 })
 
-function set_width(){
-	    let width = 100 / $("response").children[0].children[0].childElementCount;
-	    for (let i = 0; i < $("response").children[0].childElementCount; i++){
-		    for(let j = 0; j < $("response").children[0].children[i].childElementCount; j++){
-		    	$("response").children[0].children[i].children[j].style.width = `${width}vw`
-		    }
+function set_width(is_one)
+{
+	    let width;
+	    if (is_one === false){
+	    	width = 100 / $("response").children[0].children[0].childElementCount;
+	    	for (let i = 0; i < $("response").children[0].childElementCount; i++){
+		    	for(let j = 0; j < $("response").children[0].children[i].childElementCount; j++){
+		    		$("response").children[0].children[i].children[j].style.width = `${width}vw`
+		    	}
+	    	}
 	    }
 }
 
 function translate(method){
 	if (language == "pl"){
-	    	if (method == 'GET 1'){
-			$("1").innerHTML = "Dzień Tygodnia";
-			$("2").innerHTML = "ID Nauczyciela";
-			$("3").innerHTML = "ID Klasy";
-			$("4").innerHTML = "ID Klasy (pomieszczenie)";
-			$("5").innerHTML = "ID Przedmiotu";
-			$("6").innerHTML = "Godzina Lekcyjna";
-	    	}
+	    	if (method == 'GET 1' || method == "GET 0"){
+			set_width(true);
+			document.querySelectorAll("[id='w1']").forEach(object => {
+				object.children[0].innerHTML = "Pn.";
+			});
+			document.querySelectorAll("[id='w2']").forEach(object => {
+				object.children[0].innerHTML = "Wt.";
+			});
+			document.querySelectorAll("[id='w3']").forEach(object => {
+				object.children[0].innerHTML = "Śr.";
+			});
+			document.querySelectorAll("[id='w4']").forEach(object => {
+				object.children[0].innerHTML = "Cz.";
+			});
+			document.querySelectorAll("[id='w5']").forEach(object => {
+				object.children[0].innerHTML = "Pt.";
+			});
+			document.querySelectorAll("[id='w6']").forEach(object => {
+				object.children[0].innerHTML = "Sb.";
+			});
+			document.querySelectorAll("[id='w7']").forEach(object => {
+				object.children[0].innerHTML = "Nd.";
+			});
+		}
 		else if(method == 'GET 2'){
 			$("2").innerHTML = "Imię";
 			$("1").innerHTML = "ID Nauczyciela";
@@ -127,7 +114,17 @@ $("input").addEventListener('change', (e) => {
 	{
 		$("input_text").className = "";
 		$("input_args").className = "";
-		if (data.includes("1")){
+		if (data.includes("0")){
+			if (language == "pl"){
+				$("input_text").innerHTML = 
+				"(numer przerwy (taki sam jak numer lekcji) - numer), (godzina rozpoczęcia - (np. 9:00, ale BEZ ':', czyli: 900)), (godzina zakończenia - tak jak godzina rozpoczęcia)"
+			}
+			else{
+				$("input_text").innerHTML = 
+				"(break number (same as lesson number) - number), (starting hour without ':' f.e. 9:00 is 900), (ending hour same as starting hour)"
+			}
+		}
+		else if (data.includes("1")){
 			if (language == "pl"){
 			$("input_text").innerHTML = 
 "(dzień tygodnia - cyfra (1-7)), (id nauczyciela - cyfra), (id klasy - cyfra), (id klasy(pomieszczenie) - cyfra), (id przedmiotu - cyfra), (numer lekcji - cyfra)"
@@ -146,7 +143,7 @@ $("input").addEventListener('change', (e) => {
 		}
 		else if (data.includes("3")){
 			if (language == "pl"){
-				$("input_text").innerHTML = "(numer lekcji - numer), (id nauczyciela - numer), (numer klasy (pomieszczenie) - numer), (numer tygodnia - numer 1-7)"
+				$("input_text").innerHTML = "(numer przerwy - numer taki sam jak numer lekcji), (id nauczyciela - numer), (nazwa miejsca dyżuru - jedno słowo - tekst), (numer tygodnia - numer 1-7)"
 			}
 			else{
 				$("input_text").innerHTML = "(lesson number - number), (teacher id - number), (classroom id - number), (week_day - number 1-7)"
@@ -197,12 +194,20 @@ function polish(){
 		else{
 			request_type = "POST";
 		}
-		for (let i=1;i<8;i++){
+		for (let i=0;i<9;i++){
 			let str = "";
 			switch(i){
+				case 0:
+					if (request_type == "GET"){
+						str = "Pobierz Dane o Lekcjach (widok nauczyciela)";
+					}
+					else{
+						str = "Wstaw Dane o Godzinach Przerw"
+					}
+					break;
 				case 1:
 					if (request_type == "GET"){
-						str = "Pobierz Dane o Lekcjach"
+						str = "Pobierz Dane o Lekcjach (widok klas)"
 					}
 					else{
 						str = "Wstaw Dane o Lekcjach"
@@ -256,8 +261,15 @@ function polish(){
 						str = "Wstaw Dane o Godzinach Lekcyjnych"
 					}
 					break;
+				case 8:
+					if (request_type == "GET"){
+						str = "Pobierz Dane o Godzinach Przerw";
+					}
+				break;
 			}
-			$("input").innerHTML += `<option value="${request_type} ${i}">${str}</option>`;
+			if (str !== ""){
+				$("input").innerHTML += `<option value="${request_type} ${i}">${str}</option>`;
+			}
 		}
 	}
 	$("data-t").innerHTML = "Dane Wejściowe";
@@ -278,9 +290,17 @@ function english(){
 		for (let i=1;i<8;i++){
 			let str = "";
 			switch(i){
+				case 0:
+					if (request_type == "GET"){
+						str = "GET Lessons (teacher view)"
+					}
+					else{
+						str = "POST Break Hours"
+					}
+					break;
 				case 1:
 					if (request_type == "GET"){
-						str = "GET Lessons"
+						str = "GET Lessons (class view)"
 					}
 					else{
 						str = "POST Lessons"
