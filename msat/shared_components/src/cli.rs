@@ -7,7 +7,8 @@
 // Local Imports
 pub const SUCCESS : &str = "[     OK     ]";
 pub const ERROR   : &str = "[     ERR     ]";
-pub const VERSION : &str = "10";
+
+use crate::VERSION;
 
 pub fn print_dashboard(){
     println!(

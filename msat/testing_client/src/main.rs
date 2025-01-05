@@ -11,10 +11,11 @@ fn main() {
     //  msat/<Version>&method=<Method>+<Method Number>&password=<Password>&args=<Args>
     //  msat - header for ALL requests, must be provided or it is INCORRECT request
     //  <Version> - version is provided with Github releases section: 
-    //  it is u16 - 16-bit unsigned integer, f.e.:
+    //  it is u16, f.e.:
     //  if version is 0.2 it is 20,
     //  if version is 0.23 it is 23
-    //  if version is 1.0 it is 100
+    //  if version is 1.0 it is 100 
+    //  General rule: version (u16) = version (float) * 100
     //  <Method> either POST or GET, nothing except these two values (THEY MUST BE UPPERCASE),
     //  <Method Number> - number specyfing what server will do. 0 is reserved for testing/debug
     //  purposes.
@@ -25,9 +26,13 @@ fn main() {
     //  It ALWAYS is hosted on port 8888 
     //  Q: TCP/UDP?
     //  A: TCP 
+    //
     //  =================> Few things:
     //  1. Version used in this documentation is '10', but it might be different depending on
-    //     release
+    //     release,
+    //  2. Rust types explained with C types:
+    //      - u8  = byte,
+    //      - u16 = unsigned short,
     //  =================> Code started
     //  This request as mentioned before is for debug purposes,
     //  should return: "msat/200-OK&get=Server-is-working!"
@@ -47,6 +52,10 @@ fn main() {
     //  |    5     |      5      |     5      |      4        |      4     |
     //  |    6     |      6      |     6      |      6        |      1     |
     //  If request provides argument '1', it will return:
+    //  
+    //  IMPORTANT - instead of 2+2+2+1 or 6+6+6+6 server might return 
+    //  Text/String representation if one is found in database
+    //
     //  msat/200-OK&get=2+2+2+1|6+6+6+6
     //  If request provides argument '6', it will return:
     //  msat/204-No-Content
@@ -93,7 +102,7 @@ fn main() {
     //  This request requires one argument, type: u16 for teacher_id
     //  it will return booleen (true/false) and if it is true then additional data 
     //  This request returns whether teacher is on duty or not
-    //  Example with database rows:
+    //  Example with database rows (not actual database):
     //  |  teacher_id  |  break_num  |  duty_place_name  |    week_day   |
     //  |----------------------------------------------------------------|
     //  |      1       |     1      |   "Hallway-A"     |        4       |
@@ -132,8 +141,26 @@ fn main() {
     //  ============================================================
     //  This request gets lesson_number/hour and doesn't require any other argument
     //  ===========================================================
-        send_request("msat/10&method=GET+5&password=test&args=1");
+        send_request("msat/10&method=GET+6&password=test&args=");
     //  ============================================================
+    //  This request gets classroom using its ID, enter u16, get String
+    //  ===========================================================
+        send_request("msat/10&method=GET+7&password=test&args=1");
+    //  ============================================================
+    //  get class by ID, enter u16, get String
+    //  ============================================================
+        send_request("msat/10&method=GET+8&password=test&args=1");
+    //  ============================================================
+    //  get teacher by ID, enter u16, get String
+    //  ============================================================
+        send_request("msat/10&method=GET+9&password=test&args=1");
+    //  ============================================================
+    //  get break number represented as u8 
+    //  ============================================================
+        send_request("msat/10&method=GET+10&password=test&args=");
+    //  ============================================================
+    //
+    //  POST requests - Coming Soon...
 }
 
 
@@ -145,8 +172,13 @@ fn send_request(request: &str){
     let mut stream : TcpStream = TcpStream::connect("127.0.0.1:8888").unwrap();
     stream.write_all(request.as_bytes()).unwrap();
     let mut response = [0u8; 1024];
-    stream.read(&mut response).unwrap();
+    let len = stream.read(&mut response).unwrap();
     println!("{}", request);
-    println!("{}", String::from_utf8_lossy(&response));
-    println!("SUCCESS");
+    let response_as_str = String::from_utf8_lossy(&response[0..len]).to_string();
+    if response_as_str.len() == 0{
+        println!("No Data");
+    }
+    else{
+        println!("{}", response_as_str);
+    }
 }

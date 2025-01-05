@@ -6,16 +6,14 @@
 
 // Global imports
 use std::{
-    collections::{BTreeMap, HashMap}, io::{Read, Write}, iter::successors, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
+    collections::BTreeMap, io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
 };
 use tokio::sync::Mutex;
-use rusqlite::{self, OpenFlags, ToSql};
+use rusqlite::{self, OpenFlags};
 
 // Local Imports 
 use shared_components::{
-    cli::{
-        self, ERROR, SUCCESS
-    }, database::init, password::get_password, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS
+    database::*, password::get_password, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS
 };
 
 #[tokio::main]
@@ -212,120 +210,16 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                             })
                         })
                         {
-                            let class_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Classes"){
-                                Ok(mut stmt) => {
-                                    let iter = stmt.query_map([], |row| {
-                                        Ok(
-                                            Class{
-                                                class_id: row.get(0).unwrap_or(0),
-                                                class_name: row.get(1).unwrap_or("".to_string())
-                                            }
-                                        )
-                                    });
-
-                                    if let Ok(ok_iter) = iter{
-                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
-                                            .map(|s| s.unwrap())
-                                            .filter(|s| s.class_id!=0&&s.class_name.as_str()!="")
-                                            .collect::<Vec<Class>>();
-                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
-                                        for class in filtered_iter{
-                                            finhashmap.insert(class.class_id, class.class_name);
-                                        }
-                                        finhashmap
-                                    }
-                                    else{
-                                        HashMap::new()
-                                    }
-                                }
-                                Err(_) => return "".to_string()
-                            };
-                            let teacher_hashmap : HashMap<u16, (String, String)> = match database.prepare("SELECT * FROM Teachers"){
-                                Ok(mut stmt) => {
-                                    let iter = stmt.query_map([], |row| {
-                                        Ok(
-                                            Teacher{
-                                                teacher_id: row.get(0).unwrap_or(0),
-                                                first_name: row.get(1).unwrap_or("".to_string()),
-                                                last_name: row.get(2).unwrap_or("".to_string())
-                                            }
-                                        )
-                                    });
-
-                                    if let Ok(ok_iter) = iter{
-                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
-                                            .map(|s| s.unwrap())
-                                            .filter(|s| s.teacher_id!=0&&s.first_name.as_str()!=""&&s.last_name.as_str()!="")
-                                            .collect::<Vec<Teacher>>();
-                                        let mut finhashmap : HashMap<u16, (String, String)> = HashMap::new();
-                                        for teacher in filtered_iter{
-                                            finhashmap.insert(teacher.teacher_id, (teacher.first_name, teacher.last_name));
-                                        }
-                                        finhashmap
-                                    }
-                                    else{
-                                        HashMap::new()
-                                    }
-                                }
-                                Err(_) => return "".to_string()
-                            };
-                            let subject_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Subjects"){
-                                Ok(mut stmt) => {
-                                    let iter = stmt.query_map([], |row| {
-                                        Ok(
-                                            Subject{
-                                                subject_id: row.get(0).unwrap_or(0),
-                                                subject_name: row.get(1).unwrap_or("".to_string())
-                                            }
-                                        )
-                                    });
-
-                                    if let Ok(ok_iter) = iter{
-                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
-                                            .map(|s| s.unwrap())
-                                            .filter(|s| s.subject_id!=0&&s.subject_name.as_str()!="")
-                                            .collect::<Vec<Subject>>();
-                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
-                                        for s in filtered_iter{
-                                            finhashmap.insert(s.subject_id, s.subject_name);
-                                        }
-                                        finhashmap
-                                    }
-                                    else{
-                                        HashMap::new()
-                                    }
-                                }
-                                Err(_) => return "".to_string()
-                            };
-                            let classroom_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Classrooms"){
-                                Ok (mut stmt) => {
-                                    let iter = stmt.query_map([], |row| {
-                                        Ok(
-                                            Classroom{
-                                                classroom_id: row.get(0).unwrap_or(0),
-                                                classroom_name: row.get(1).unwrap_or("".to_string())
-                                            }
-                                        )
-                                    });
-                                    if let Ok(ok_iter) = iter{
-                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
-                                            .map(|s| s.unwrap())
-                                            .filter(|s| s.classroom_id!=0&&s.classroom_name.as_str()!="")
-                                            .collect::<Vec<Classroom>>();
-                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
-                                        for classroom in filtered_iter{
-                                            finhashmap.insert(classroom.classroom_id, classroom.classroom_name);
-                                        }
-                                        finhashmap
-                                    }
-                                    else{
-                                        HashMap::new()
-                                    }
-                                }
-                                Err(_) => return "".to_string()
-                            };
-                            if classroom_hashmap.len() == 0 || classroom_hashmap.len() == 0 || subject_hashmap.len() == 0{
-                                return "<db_col><db_row><p>Nie znaleziono Danych</p><p>No Data found</p></db_row></db_col>".to_string();
+                            let (classroom_hashmap, class_hashmap, subject_hashmap, teacher_hashmap) = 
+                                (
+                                    get_classrooms(&database),
+                                    get_classes(&database),
+                                    get_subjects(&database),
+                                    get_teachers(&database)
+                                );
+                            if class_hashmap.len() == 0 || classroom_hashmap.len() == 0 || subject_hashmap.len() == 0{
+                            return 
+                            "<db_col><db_row><p>Nie znaleziono Danych</p><p>No Data found</p></db_row></db_col>".to_string();
                             }
                             let filtered_iter : Vec<Lesson> 
                                 = iter.filter(|s| s.is_ok())
@@ -396,121 +290,13 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                             })
                         })
                         {
-                            let class_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Classes"){
-                                Ok(mut stmt) => {
-                                    let iter = stmt.query_map([], |row| {
-                                        Ok(
-                                            Class{
-                                                class_id: row.get(0).unwrap_or(0),
-                                                class_name: row.get(1).unwrap_or("".to_string())
-                                            }
-                                        )
-                                    });
-
-                                    if let Ok(ok_iter) = iter{
-                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
-                                            .map(|s| s.unwrap())
-                                            .filter(|s| s.class_id!=0&&s.class_name.as_str()!="")
-                                            .collect::<Vec<Class>>();
-                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
-                                        for class in filtered_iter{
-                                            finhashmap.insert(class.class_id, class.class_name);
-                                        }
-                                        finhashmap
-                                    }
-                                    else{
-                                        HashMap::new()
-                                    }
-                                }
-                                Err(_) => return "".to_string()
-                            };
-                            let teacher_hashmap : HashMap<u16, (String, String)> = match database.prepare("SELECT * FROM Teachers"){
-                                Ok(mut stmt) => {
-                                    let iter = stmt.query_map([], |row| {
-                                        Ok(
-                                            Teacher{
-                                                teacher_id: row.get(0).unwrap_or(0),
-                                                first_name: row.get(1).unwrap_or("".to_string()),
-                                                last_name: row.get(2).unwrap_or("".to_string())
-                                            }
-                                        )
-                                    });
-
-                                    if let Ok(ok_iter) = iter{
-                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
-                                            .map(|s| s.unwrap())
-                                            .filter(|s| s.teacher_id!=0&&s.first_name.as_str()!=""&&s.last_name.as_str()!="")
-                                            .collect::<Vec<Teacher>>();
-                                        let mut finhashmap : HashMap<u16, (String, String)> = HashMap::new();
-                                        for teacher in filtered_iter{
-                                            finhashmap.insert(teacher.teacher_id, (teacher.first_name, teacher.last_name));
-                                        }
-                                        finhashmap
-                                    }
-                                    else{
-                                        HashMap::new()
-                                    }
-                                }
-                                Err(_) => return "".to_string()
-                            };
-                            let subject_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Subjects"){
-                                Ok(mut stmt) => {
-                                    let iter = stmt.query_map([], |row| {
-                                        Ok(
-                                            Subject{
-                                                subject_id: row.get(0).unwrap_or(0),
-                                                subject_name: row.get(1).unwrap_or("".to_string())
-                                            }
-                                        )
-                                    });
-
-                                    if let Ok(ok_iter) = iter{
-                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
-                                            .map(|s| s.unwrap())
-                                            .filter(|s| s.subject_id!=0&&s.subject_name.as_str()!="")
-                                            .collect::<Vec<Subject>>();
-                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
-                                        for s in filtered_iter{
-                                            finhashmap.insert(s.subject_id, s.subject_name);
-                                        }
-                                        finhashmap
-                                    }
-                                    else{
-                                        HashMap::new()
-                                    }
-                                }
-                                Err(_) => return "".to_string()
-                            };
-                            let classroom_hashmap : HashMap<u16, String> = match database.prepare("SELECT * FROM Classrooms"){
-                                Ok (mut stmt) => {
-                                    let iter = stmt.query_map([], |row| {
-                                        Ok(
-                                            Classroom{
-                                                classroom_id: row.get(0).unwrap_or(0),
-                                                classroom_name: row.get(1).unwrap_or("".to_string())
-                                            }
-                                        )
-                                    });
-                                    if let Ok(ok_iter) = iter{
-                                        let filtered_iter = ok_iter.filter(|s| s.is_ok()&&s.is_ok())
-                                            .map(|s| s.unwrap())
-                                            .filter(|s| s.classroom_id!=0&&s.classroom_name.as_str()!="")
-                                            .collect::<Vec<Classroom>>();
-                                        let mut finhashmap : HashMap<u16, String> = HashMap::new();
-                                        for classroom in filtered_iter{
-                                            finhashmap.insert(classroom.classroom_id, classroom.classroom_name);
-                                        }
-                                        finhashmap
-                                    }
-                                    else{
-                                        HashMap::new()
-                                    }
-                                }
-                                Err(_) => return "".to_string()
-                            };
-                            if classroom_hashmap.len() == 0 || classroom_hashmap.len() == 0 || subject_hashmap.len() == 0{
-                                return "<db_col><db_row><p>Nie znaleziono Danych</p><p>No Data found</p></db_row></db_col>".to_string();
-                            }
+                            let (class_hashmap, classroom_hashmap, subject_hashmap, teacher_hashmap) = 
+                                (
+                                    get_classes   (&database),
+                                    get_classrooms(&database),
+                                    get_subjects  (&database),
+                                    get_teachers  (&database)
+                                );
                             let filtered_iter : Vec<Lesson> 
                                 = iter.filter(|s| s.is_ok())
                                 .map(|s| s.unwrap())
@@ -1011,36 +797,5 @@ fn weekd_to_string(weekd: u8) -> String{
         6 => "Sat.".to_string(),
         7 => "Sun.".to_string(),
         _ => "Unk.".to_string()
-    }
-}
-
-#[cfg(test)]
-mod tests{
-    use super::*;
-    #[test]
-    fn parse(){
-        let mut to_return : String = String::from("");                    
-        let mut sorted_map : BTreeMap<(u16, u8, u8), (u16, u16, u16)> = BTreeMap::new();
-        let (mut lc, mut llh) = (&0, &0);
-        for (class, _, lessonh) in sorted_map.keys(){
-            if lc < class{
-                lc = class;
-            }
-            if llh < lessonh {
-                llh = lessonh;
-            }
-        }
-        for class in 1..=2{
-            to_return.push_str(&format!("<class id='{class}'>\n"));
-            for weekd in 1..=2u8{
-                to_return.push_str(&format!("   <weekd id='{}'>\n", weekd_to_string(weekd)));
-                for lesson_num in 1..=2u8{
-                    to_return.push_str(&format!("       <lesson id ='{lesson_num}'></lesson>\n"));
-                }
-                to_return.push_str("    </weekd>\n");
-            }
-            to_return.push_str("</class>\n");
-        }
-        println!("{}", to_return);
     }
 }

@@ -29,6 +29,7 @@ impl ToString for Request{
 #[derive(PartialEq,Eq,Serialize,Deserialize,Clone,Debug, Default)]
 pub struct Configuration{
     pub password : String,
+    pub port     : u16,
     pub ip_addr  : Option<IpAddr>,
 }
 #[allow(unused)]
