@@ -5,9 +5,11 @@ members = [
 	"shared_components",
 	"testing_client"
 ]
+resolver = "2"
 
 [workspace.dependencies]
 rusqlite = {version = "0.32.1", features=["bundled"]}
 serde = {version="1.0.216",features=["derive"]}
 tokio = {version="1.42.0",features=["full"]}
+colored = "2.2.0"
 toml = "0.8.19"

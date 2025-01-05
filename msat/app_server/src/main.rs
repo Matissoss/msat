@@ -19,19 +19,22 @@ use rusqlite::Connection as SQLite;
 use chrono::{
     self, Datelike, Timelike
 };
+use colored::Colorize;
 // Local Imports
 
 use shared_components::{
     cli::{
-        self, ERROR
+        self, ERROR, ARGS
     }, config as ConfigFile, database as Database, password::get_password, split_string_by, types::*,
     CLEAR, LOCAL_IP, SQLITE_FLAGS, VERSION,
+    utils
 };
 use shared_components::utils::*;
 
 // Entry point
 #[tokio::main]
 async fn main() {
+    cli::main();
     if let Ok(_) = std::process::Command::new(CLEAR).status(){
         cli::print_dashboard();
     };
@@ -54,7 +57,7 @@ async fn main() {
     let shared_config = Arc::new(match ConfigFile::get().await{
         Ok(v) => {v},
         Err(_) => {
-            println!("{} Error getting configuration", ERROR); 
+            cli::print_errwithout("Error getting configuration"); 
             None
         }
     });
@@ -69,6 +72,22 @@ async fn main() {
         }
         None => {(None, 8888)}
     };
+
+    if let Ok(invite_code) = utils::encode_ip(ip_address.unwrap_or(*LOCAL_IP), port){
+        if ARGS.contains(&"--color".to_string()){
+            cli::print_info(&format!("This Code should be entered by clients: {}", invite_code.yellow().on_black().bold()));
+        }
+        else{
+            cli::print_info(&format!("This Code should be entered by clients: {}", invite_code));
+        }
+        if let Err(error) = tokio::fs::write("invite.code", invite_code).await{
+            cli::print_error("Error occured while saving to file 'invite.code'", error);
+        }
+        else{
+            cli::print_success("Successfully saved to invite.code");
+        }
+    }
+
     let listener : TcpListener = match TcpListener::bind
         (format!("{}:{}", ip_address.unwrap_or(*LOCAL_IP), port))
         {
@@ -84,9 +103,9 @@ async fn main() {
             }
     };
 
-    println!("Listening on {}:8888", ip_address.unwrap_or(*LOCAL_IP));
+    cli::debug_log(&format!("Listening on {}:8888", ip_address.unwrap_or(*LOCAL_IP)));
     start_listening(listener, db).await;
-    println!("Shutdown?");
+    cli::debug_log("Shutdown?");
     std::process::exit(0);
 }
 

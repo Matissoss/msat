@@ -2,6 +2,7 @@
 /msat/admin_dashboard/data
 /msat/admin_dashboard/target
 /msat/app_server/target
+/msat/app_server/data
 /msat/shared_components/target
 /msat/testing_client/target
 /msat/target

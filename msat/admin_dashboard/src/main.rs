@@ -13,12 +13,13 @@ use rusqlite::{self, OpenFlags};
 
 // Local Imports 
 use shared_components::{
-    database::*, password::get_password, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS
+    database::*, password::get_password, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS, cli
 };
 
 #[tokio::main]
 #[allow(warnings)]
 async fn main(){
+    cli::main();
     init_httpserver(*LOCAL_IP).await;
 }
 
@@ -38,10 +39,10 @@ pub async fn init_httpserver(ip_addr: IpAddr) {
         Ok(v) => v,
         Err(_) => std::process::exit(-1),
     };
-    println!("Initialized HTTP SERVER");
+    cli::print_success("Initialized HTTP Server");
     loop {
         for s in listener.incoming() {
-            println!("REQUEST Incoming");
+            cli::debug_log("Request Incoming");
             if let Ok(stream) = s{
                 let cloned_dbptr = Arc::clone(&database);
                 tokio::spawn(async {
@@ -49,7 +50,7 @@ pub async fn init_httpserver(ip_addr: IpAddr) {
                 });
             }
             else if let Err(error) = s{
-                eprintln!("TCPStream is Err: {}", error);
+                cli::print_error("TCPStream is Err", error);
             }
         }
     }
@@ -60,7 +61,12 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
         if len == 0 {
         } else {
             let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
-            println!("{:?}", request);
+            for l in request.lines(){
+                if !l.is_empty()
+                {
+                    cli::debug_log(l);
+                }
+            }
             let lines = request
                 .lines()
                 .filter(|s| s.is_empty() == false)
@@ -92,8 +98,8 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type: application/xml\r\n\r\n{}",
                                         response.len(), response).as_bytes())
                                 {
-                                    Ok(_) => print!("\n---\nResponsed To Request\n"),
-                                    Err(_) => print!("\n---\nCouldn't Respond")
+                                    Ok(_) =>  cli::print_info("Handled Request"),
+                                    Err(_) => cli::print_info("Couldn't Handle Request")
                                 };
                             }
                         }
@@ -115,22 +121,23 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
             // End of checks
             let binary: bool = types[0].starts_with("image");
             let f_type = &types[0];
-            println!("FILE_PATH = {}\n===", file_path);
+            cli::debug_log(&format!("file_path = {}", file_path));
 
             if binary == false {
                 if let Ok(buf) = tokio::fs::read(file_path).await {
                     if let Ok(string) = String::from_utf8(buf.clone()) {
                         stream.write_all(
-                                        format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
-                                            string.len(), f_type, string)
-                                        .as_bytes())
-                                    .unwrap();
+                        format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
+                            string.len(), f_type, string)
+                        .as_bytes())
+                        .unwrap();
                     } else {
                         let string = String::from_utf8_lossy(&buf).to_string();
                         stream.write_all(
-                                        format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
-                                            string.len(), f_type, string).as_bytes())
-                                    .unwrap()
+                        format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
+                            string.len(), f_type, string)
+                        .as_bytes())
+                        .unwrap()
                     };
                 } else {
                     not_found(&mut stream);
@@ -138,7 +145,7 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
             } else {
                 if let Ok(buf) = tokio::fs::read(file_path).await {
                     let http_header = 
-                                    format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\nConnection: keep-alive\r\n\r\n",
+                    format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\nConnection: keep-alive\r\n\r\n",
                                     buf.len(), f_type);
                     stream.write_all(http_header.as_bytes()).unwrap();
                     let mut vector = Vec::with_capacity(buf.len() + http_header.len());
@@ -256,17 +263,19 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 to_return.push_str(&format!("<class id='{teacher}'><p>{} {}</p><w>\n", 
                                         first_name, last_name));
                                 for weekd in 1..=7u8{
-                                    to_return.push_str(&format!("   <weekd id='w{weekd}'><p>{}</p>\n", weekd_to_string(weekd)));
+                                    to_return.push_str(&format!("<weekd id='w{weekd}'><p>{}</p>\n", weekd_to_string(weekd)));
                                     for lesson_num in 1..=*llh{
                                         if let Some((si, cli, ci)) = sorted_map.get(&(teacher, weekd, lesson_num)){
                                             to_return.push_str(
-                                                &format!("       <lesson><p><strong>Lekcja/Lesson {lesson_num}</strong></p><p>{}</p><p>{}</p><p>{}</p></lesson>\n",
+                                            &format!
+                                            ("<lesson><p><strong>Lekcja/Lesson{lesson_num}</strong></p>
+                                             <p>{}</p><p>{}</p><p>{}</p></lesson>\n",
                                                     subject_hashmap.get(si).unwrap_or(&si.to_string()),
                                                     class_hashmap.get(ci).unwrap_or(&ci.to_string()),
                                                     classroom_hashmap.get(cli).unwrap_or(&cli.to_string())));
                                         }
                                     }
-                                    to_return.push_str("    </weekd>\n");
+                                    to_return.push_str("</weekd>\n");
                                 }
                                 to_return.push_str("</w></class>\n");
                             }
@@ -335,13 +344,13 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                                 }
                                             };
                                             to_return.push_str(
-                                                &format!("       <lesson id ='{lesson_num}'><p>{}</p><p>{} {}</p><p>{}</p></lesson>\n",
+                                                &format!("<lesson id ='{lesson_num}'><p>{}</p><p>{} {}</p><p>{}</p></lesson>\n",
                                                     subject_hashmap.get(si).unwrap_or(&si.to_string()),
                                                     first_name, last_name,
                                                     classroom_hashmap.get(cli).unwrap_or(&cli.to_string())));
                                         }
                                     }
-                                    to_return.push_str("    </weekd>\n");
+                                    to_return.push_str("</weekd>\n");
                                 }
                                 to_return.push_str("</w></class>\n");
                             }
@@ -757,10 +766,12 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
 }
 
 fn not_found(tcp: &mut TcpStream) {
-    match tcp.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n<h1>404 - Not Found</h1>") {
-        Ok(_) => println!("Success"),
-        Err(e) => eprintln!("Error: {}", e),
-    };
+    if let Err(error) = tcp.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n<h1>404 - Not Found</h1>"){
+        cli::print_error("Error Occured while sending 404 to client", error);
+    }
+    else{
+        cli::debug_log("Returned 404 to Client");
+    }
 }
 
 fn strvec_to_str(vec: &Vec<String>) -> String{

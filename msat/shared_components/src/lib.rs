@@ -16,7 +16,7 @@ pub static SQLITE_FLAGS : LazyLock<OpenFlags> = LazyLock::new(||
 {
     OpenFlags::SQLITE_OPEN_CREATE|OpenFlags::SQLITE_OPEN_READ_WRITE|OpenFlags::SQLITE_OPEN_FULL_MUTEX 
 });
-pub const VERSION : u16  = 21;
+pub const VERSION : u16  = 22;
 pub const CLEAR   : &str = if cfg!(windows)
 {
     "cls"

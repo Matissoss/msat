@@ -28,10 +28,6 @@ project is approximately **~60%** done before stable version 1.0.
 - 💤 Customizable admin-dashboard
 - 🆓 FOSS (Free and open-source)
 
-# Setup
-
-TODO ([SETUP](setup.md))
-
 # Download Pre-compiled Binaries
 
 It's recommended way to download **msat**. Go to releases section and find release you want to use (preferably with `stable` in its name). 
