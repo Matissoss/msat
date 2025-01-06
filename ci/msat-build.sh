@@ -15,6 +15,10 @@ mkdir ../ci/build
 mkdir ../ci/build/winx86_64
 mkdir ../ci/build/linx86_64-libc
 mkdir ../ci/build/linx86_64-musl
+# make data dir
+mkdir ../ci/build/winx86_64/data
+mkdir ../ci/build/linx86_64-libc/data
+mkdir ../ci/build/linx86_64-musl/data
 # Move files to build directories
 mv target/x86_64-unknown-linux-gnu/release/admin_dashboard ../ci/build/linx86_64-libc/admin_dashboard
 mv target/x86_64-unknown-linux-musl/release/admin_dashboard ../ci/build/linx86_64-musl/admin_dashboard 
@@ -30,9 +34,13 @@ cp -r admin_dashboard/web ../ci/build/winx86_64/web
 
 # Now copy setup/docs files to build dirs 
 cd ..
-cp -r docs ci/build/winx86_64/docs
-cp -r docs ci/build/linx86_64-musl/docs
-cp -r docs ci/build/linx86_64-libc/docs
+cp -r docs/bundle ci/build/winx86_64/docs
+cp -r docs/bundle ci/build/linx86_64-musl/docs
+cp -r docs/bundle ci/build/linx86_64-libc/docs
+# Copy example config.toml
+cp ci/sample_data/config.toml ci/build/linx86_64-libc/data/config.toml
+cp ci/sample_data/config.toml ci/build/linx86_64-musl/data/config.toml
+cp ci/sample_data/config.toml ci/build/winx86_64/data/config.toml
 
 # Make directory for compressed binaries
 mkdir ci/build/release

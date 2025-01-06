@@ -1,0 +1,13 @@
+password="test"
+
+[http_server]
+http_port = 8000
+max_connections = 100
+max_timeout_seconds = 10 
+tcp_ip = "127.0.0.1"
+
+[application_server]
+port = 8888
+max_connections = 100 
+max_timeout_seconds = 7
+tcp_ip = "127.0.0.1"

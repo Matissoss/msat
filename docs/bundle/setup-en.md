@@ -9,24 +9,18 @@
     b) In case of building from source:
         - Instructions can be found in: [README.md](https://github.com/Matissoss/msat/tree/main/README.md) under 
         section named: "Building from source"
-2. Create directory named: "data" in main directory
-3. Create `config.toml` file in "data" directory.
-4. Add following into `config.toml`:
-    ```toml 
-    password="INSERT_PASSWORD"
-    ip_addr ="INSERT_IPv4"
-    ```
-In place of "INSERT_PASSWORD" insert your password of choice. **Password MUST BE ONE-WORD**, otherwise **REQUESTS** won't work.
+2. Configure **msat** using `data/config.toml`
+In place of "password" insert your password of choice. **Password MUST BE ONE-WORD**, otherwise **REQUESTS** won't work.
 
-***(OPTIONAL)*** In place of "INSERT_IPv4" insert correct IPv4, preferably public one, so any device can connect to it. 
-If you don't want to insert IPv4 just yet, insert in this place: "127.0.0.1" (local IPv4, only accesible through LAN)..
+***(OPTIONAL)*** In place of "tcp_ip" insert correct IPv4, preferably public one, so any device can connect to it (`app_server` on launch will show your public IPv4).
+If you don't want to insert IPv4 just yet, insert in this place: "127.0.0.1" (local IPv4).
 
-5. Now, you want to start binary/executable files named: `admin_dashboard` and `app_server` at once
+3. Now, you want to start binary/executable files named: `admin_dashboard` and `app_server` at once
     a) If using bash-compatible shell/terminal: `./admin_dashboard & ./app_server`,
     b) If on Windows/Linux with Desktop Enviroment (not in text mode) open them one after another.
-6. Connect to admin dashboard inserting this into your browser URL Search: "localhost:8000" (if you did set ip_addr to "127.0.0.1")
-7. Test if admin dashboard works by executing some commands and insert your password into Input Section. You should get feedback, if it 
+4. Connect to admin dashboard inserting this into your browser URL Search: "localhost:8000" (if you did set ip_addr to "127.0.0.1")
+5. Test if admin dashboard works by executing some commands and insert your password into Input Section. You should get feedback, if it 
 works/doesn't work 
-8. Enjoy [^1]
+6. Enjoy [^1]
 
 [^1]: This will be expanded, when **msat** client, **msatc** will be finished.

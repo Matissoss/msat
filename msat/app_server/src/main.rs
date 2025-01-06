@@ -14,7 +14,7 @@ use std::{
         TcpListener, TcpStream
     }, sync::Arc,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use rusqlite::Connection as SQLite;
 use chrono::{
     self, Datelike, Timelike
@@ -61,17 +61,20 @@ async fn main() {
             None
         }
     });
-    let (ip_address, port) = match &*shared_config{
+    let (ip_address, port, max_connections, max_timeout) = match &*shared_config{
         Some(v) => {
-            if let (Some(ip), port) = (v.application_server.tcp_ip, v.application_server.port){
-                (Some(ip), port)
+            if let (Some(ip), port, max, maxt) 
+                = (v.application_server.tcp_ip, v.application_server.port,v.application_server.max_connections,
+                    v.application_server.max_timeout_seconds){
+                (Some(ip), port, max, Arc::new(maxt.into()))
             }
             else{
-                (None, 8888)
-            }
+                (None, 8888, 100, Arc::new(6))
+    }
         }
-        None => {(None, 8888)}
+        None => {(None, 8888, 100, Arc::new(6))}
     };
+    let limit = Arc::new(Semaphore::new(max_connections.into()));
     let public_ip = match utils::get_public_ip(){
         Ok(ip) => ip,
         Err(_) => *LOCAL_IP
@@ -107,14 +110,15 @@ async fn main() {
                 }
             }
     };
+    
 
     cli::debug_log(&format!("Listening on {}:8888", ip_address.unwrap_or(*LOCAL_IP)));
-    start_listening(listener, db).await;
+    start_listening(listener, db, limit, max_timeout).await;
     cli::debug_log("Shutdown?");
     std::process::exit(0);
 }
 
-async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
+async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>, limit: Arc<Semaphore>, timeout: Arc<u64>){
     loop{
         for s in listener.incoming(){
             let (mut ip_address, mut port) = (*LOCAL_IP,0);
@@ -125,18 +129,21 @@ async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>){
                     ip_address = socket_ip.ip();
                     port = socket_ip.port();
                 };
-
+                let cloned_timeout = Arc::clone(&timeout);
+                let cloned_limit = Arc::clone(&limit);
+                if let Ok(_) = tokio::time::timeout(std::time::Duration::from_secs(*cloned_timeout), cloned_limit.acquire_owned()).await{
                 let shared_db = Arc::clone(&db);
-                tokio::spawn(
-                    async move{
-                        if let Err(error) = handle_connection(stream, shared_db).await{
-                            cli::print_error("Error occured while handling exception", error);
+                    tokio::spawn(
+                        async move{
+                            if let Err(error) = handle_connection(stream, shared_db).await{
+                                cli::print_error("Error occured while handling exception", error);
+                            }
+                            else{
+                                cli::print_success(&format!("Successfully handled request from TCP Addr: {}:{}", ip_address, port))
+                            };
                         }
-                        else{
-                            cli::print_success(&format!("Successfully handled request from TCP Addr: {}:{}", ip_address, port))
-                        };
-                    }
-                );
+                    );
+                }
             }
             else{
                 println!("{} TCPStream is None", ERROR);

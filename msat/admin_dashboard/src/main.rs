@@ -8,7 +8,7 @@
 use std::{
     collections::BTreeMap, io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use rusqlite::{self, OpenFlags};
 
 // Local Imports 
@@ -35,21 +35,22 @@ pub async fn init_httpserver() {
             }
     ));
 
-    let (ip, port) : (IpAddr, u16) = match config::get().await{
+    let (ip, port, max_limit, max_timeout) : (IpAddr, u16, u16, Arc<u64>) = match config::get().await{
         Ok(c) => {
             if let Some(config) = c{
                 (config.http_server.tcp_ip.unwrap_or(*LOCAL_IP), 
-                 config.http_server.http_port)
+                 config.http_server.http_port, config.http_server.max_connections,
+                 Arc::new(config.http_server.max_timeout_seconds.into()))
             }
             else{
-                (*LOCAL_IP, 8000)
+                (*LOCAL_IP, 8000, 100, Arc::new(10))
             }
         }
         Err(_) => {
-            (*LOCAL_IP, 8000)
+            (*LOCAL_IP, 8000, 100, Arc::new(10))
         }
     };
-
+    let limit = Arc::new(Semaphore::new(max_limit.into()));
     let final_address = format!("{}:{}", ip.to_string(), port);
     let listener: TcpListener = match TcpListener::bind(final_address) {
         Ok(v) => v,
@@ -61,9 +62,14 @@ pub async fn init_httpserver() {
             cli::debug_log("Request Incoming");
             if let Ok(stream) = s{
                 let cloned_dbptr = Arc::clone(&database);
-                tokio::spawn(async {
-                    handle_connection(stream, cloned_dbptr).await;
-                });
+                let cloned_permit = Arc::clone(&limit);
+                let cloned_timeout = Arc::clone(&max_timeout);
+                if let Ok(_) = tokio::time::timeout(std::time::Duration::from_secs(*cloned_timeout), 
+                    cloned_permit.acquire_owned()).await{
+                    tokio::spawn(async {
+                        handle_connection(stream, cloned_dbptr).await;
+                    });
+                }
             }
             else if let Err(error) = s{
                 cli::print_error("TCPStream is Err", error);

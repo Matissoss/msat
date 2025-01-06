@@ -37,12 +37,14 @@ pub struct Configuration{
 pub struct HttpServerConfig{
     pub http_port: u16,
     pub max_connections: u16,
+    pub max_timeout_seconds : u16,
     pub tcp_ip  : Option<IpAddr>
 }
 #[derive(Serialize, Deserialize, Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AppServerConfig{
     pub port : u16,
     pub max_connections: u16,
+    pub max_timeout_seconds : u16,
     pub tcp_ip : Option<IpAddr>
 }
 
