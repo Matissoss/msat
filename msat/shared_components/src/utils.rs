@@ -4,9 +4,7 @@
 /// where to put
 ///==============================================
 
-use std::{char, net::IpAddr};
-
-use rusqlite::ToSql;
+use std::{net::IpAddr, str::FromStr};
 
 pub fn quick_match<T, E>(statement: Result<T, E>) -> Option<T>
 {
@@ -56,6 +54,40 @@ pub fn format_time(time: u32) -> String{
     }
 }
 
+use std::process::{Command, ExitStatus};
+
+use crate::cli;
+pub fn get_public_ip() -> Result<IpAddr, ()>{
+    let curl_result = Command::new("curl")
+        .arg("https://api.ipify.org/")
+        .output();
+    match curl_result{
+        Ok(output) => {
+            if ExitStatus::success(&output.status)
+            {
+                if let Ok(string) = String::from_utf8(output.stdout){
+                    if let Ok(ip) = IpAddr::from_str(&string){
+                        return Ok(ip)
+                    }
+                    else{
+                        return Err(());
+                    }
+                }
+                else{
+                    return Err(())
+                }
+            }
+            else{
+                return Err(());
+            }
+        }
+        Err(error) => 
+        {
+            cli::print_error("Error occured while getting public IP", error);
+            return Err(());
+        }
+    }
+}
 
 pub fn encode_ip(ip: IpAddr, port: u16) -> Result<String, ()>{
     let buf : [u8; 4] = match ip{
@@ -81,7 +113,6 @@ pub fn decode_ip(encoded_ip: String) -> Result<([u8; 4], u16), ()>{
         let mut start = 0;
         let mut ip_byte_index = 0;
         while ip_byte_index < 4 {
-            let len = ip_hex[start..start+1].parse::<usize>().map_err(|_| ())?;
             start += 1;
             let hex_str = &ip_hex[start..start + 2];
             ip_bytes[ip_byte_index] = u8::from_str_radix(hex_str, 16).map_err(|_| ())?;
@@ -101,6 +132,10 @@ mod tests{
 
     use super::*;
     #[test]
+    fn public_ip(){
+        println!("{}", get_public_ip().unwrap());
+    }
+    #[test]
     fn encode(){
         println!("{}", encode_ip(IpAddr::from_str("192.168.43.48").unwrap(), 12000).unwrap());
         println!("{}", encode_ip(IpAddr::from_str("127.0.0.1").unwrap(), 8888).unwrap());
@@ -109,6 +144,7 @@ mod tests{
     fn decode(){
         println!("{:?}", decode_ip("2c02a822b230_422b8".to_string()).unwrap());
         assert_eq!(Ok(([192, 168, 43, 48], 8888)), decode_ip("2c02a822b230_422b8".to_string()));
-        assert_eq!(Ok(([127, 0, 0, 1], 8888)), decode_ip("27f200200201_422b8".to_string()))
+        assert_eq!(Ok(([127, 0, 0, 1], 8888)), decode_ip("27f200200201_422b8".to_string()));
+        println!("{:?}", decode_ip("22522f2d62fe_422b8".to_string()));
     }
 }

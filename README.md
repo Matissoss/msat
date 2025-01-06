@@ -34,6 +34,11 @@ It's recommended way to download **msat**. Go to releases section and find relea
 Then download compressed file for your operating system and CPU architecture (for non-technical users: your machine in most cases ***PROBABLY*** 
 uses 64-bit x86 - x86_64).
 
+# Dependencies 
+
+**msat** requires following dependencies to function:
+- **curl**
+
 # Building from Source 
 
 ## msat 
@@ -58,6 +63,10 @@ uses 64-bit x86 - x86_64).
 ## msatc 
 > **msatc**'s development is not started yet
 
+# Versioning
+
+Versioning can be found [here](https://github.com/Matissoss/Matissoss/tree/main/VERSIONING.md)
+
 # License
 
 **msat** and **msatc** and all components included in this repo (except logos in `/promo/` directory) are 
@@ -68,5 +77,7 @@ licensed under [**X11 (MIT) License**](LICENSE)
 
 **msat** was made using Rust, serde (toml), tokio-rs and SQLite bindings for Rust (rusqlite), 
 without these **msat** wouldn't exist.
+
+**msat** uses `https://api.ipify.org/` to get device's public IP.
 
 **msat** and **msatc** were made by **Mateus Dev** ([Profile](https://github.com/Matissoss))

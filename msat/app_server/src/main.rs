@@ -63,7 +63,7 @@ async fn main() {
     });
     let (ip_address, port) = match &*shared_config{
         Some(v) => {
-            if let (Some(ip), port) = (v.ip_addr, v.port){
+            if let (Some(ip), port) = (v.application_server.tcp_ip, v.application_server.port){
                 (Some(ip), port)
             }
             else{
@@ -72,19 +72,24 @@ async fn main() {
         }
         None => {(None, 8888)}
     };
-
-    if let Ok(invite_code) = utils::encode_ip(ip_address.unwrap_or(*LOCAL_IP), port){
+    let public_ip = match utils::get_public_ip(){
+        Ok(ip) => ip,
+        Err(_) => *LOCAL_IP
+    };
+    if let Ok(invite_code) = utils::encode_ip(public_ip, port){
         if ARGS.contains(&"--color".to_string()){
+            cli::print_info(&format!("This is your public ip: {}", public_ip.to_string().on_black().white().bold()));
             cli::print_info(&format!("This Code should be entered by clients: {}", invite_code.yellow().on_black().bold()));
         }
         else{
+            cli::print_info(&format!("This is your public ip: {}", public_ip.to_string()));
             cli::print_info(&format!("This Code should be entered by clients: {}", invite_code));
         }
-        if let Err(error) = tokio::fs::write("invite.code", invite_code).await{
-            cli::print_error("Error occured while saving to file 'invite.code'", error);
+        if let Err(error) = tokio::fs::write("data/invite.code", invite_code).await{
+            cli::print_error("Error occured while saving to file 'data/invite.code'", error);
         }
         else{
-            cli::print_success("Successfully saved to invite.code");
+            cli::print_success("Successfully saved to data/invite.code");
         }
     }
 
@@ -185,6 +190,7 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
 }
 
 async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, RequestError>{
+    let args = &parsed_request.content;
     match parsed_request.request
     {
         Request::GET => {
@@ -194,7 +200,10 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 1 => 
                 {
-                    // GET Lessons for this Day 
+                    // GET Lessons for this day 
+                    if args.len() < 1{
+                        return Ok(not_enough_arguments(args.len(), 1));
+                    }
                     let teacher = match parsed_request.content[0].parse::<u16>(){
                         Ok(v) => v,
                         Err(_) => {
@@ -305,6 +314,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 3 => {
                     // GET next break start_time and end_time | break_num == lesson_num
+                    if args.len() < 1{
+                        return Ok(not_enough_arguments(args.len(), 1));
+                    }
                     if let Ok(break_num) = str::parse::<u8>(&parsed_request.content[0]){
                         let database = db.lock().await;
                         let query = "SELECT * FROM BreakHours WHERE break_num = ?1";
@@ -335,6 +347,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     // If false then program returns 200 OK false 
                     // If true then program checks WHERE does the teacher have duty and returns
                     // true
+                    if args.len() < 1{
+                        return Ok(not_enough_arguments(args.len(), 1));
+                    }
                     let teacher_id = match parsed_request.content[0].parse::<u16>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -369,6 +384,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 5 => {
                     // GET current classroom && class (as String)
+                    if args.len() < 1{
+                        return Ok(not_enough_arguments(args.len(), 1));
+                    }
                     let teacher_id = match parsed_request.content[0].parse::<u16>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -444,6 +462,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 7 => {
                     // GET classroom by id
+                    if args.len() < 1{
+                        return Ok(not_enough_arguments(args.len(), 1));
+                    }
                     let id = match parsed_request.content[0].parse::<u16>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -455,6 +476,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 8 => {
                     // GET class by id 
+                    if args.len() < 1{
+                        return Ok(not_enough_arguments(args.len(), 1));
+                    }
                     let id = match parsed_request.content[0].parse::<u16>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -465,6 +489,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     }
                 }
                 9 => {
+                    if args.len() < 1{
+                        return Ok(not_enough_arguments(args.len(), 1));
+                    }
                     let id = match parsed_request.content[0].parse::<u16>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -489,6 +516,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         }
                     }
                 }
+
+                // ADMIN Commands
+                20 => {
+
+                }
                 _ => {
                     return Err(RequestError::UnknownRequestError);
                 }
@@ -500,6 +532,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     return Ok("msat/200-OK&post=Server-is-working!".to_string());
                 }
                 1 => {
+                    if args.len() < 6{
+                        return Ok(not_enough_arguments(args.len(), 6));
+                    }
                     // POST Lesson - contains class, classroom, subject, teacher, lesson number
                     let (class_id, classroom_id, subject_id, teacher_id, lesson_number, week_day) :
                         (Option<u16>, Option<u16>, Option<u16>, Option<u16>, Option<u16>, Option<u16>)= 
@@ -540,6 +575,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 2 => {
                     // POST Teacher - contains ID and full name
+                    if args.len() < 3{
+                        return Ok(not_enough_arguments(args.len(), 3));
+                    }
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(_) => {return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))}
@@ -557,25 +595,25 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 3 => {
                     // POST Hours - contains start hour, lesson number and end number
+                    if args.len() < 3{
+                        return Ok(not_enough_arguments(args.len(), 3));
+                    }
                     let content = &parsed_request.content;
                     let lesson_num : u8 = match content[0].parse::<u8>(){
                         Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{} Error parsing: {}", ERROR, e);
+                        Err(_) => {
                             return Err(RequestError::ParseIntError(content[0].clone()));
                         }
                     };
                     let (s_hour, s_minute) = match format_mmdd(&content[1]){
                         Ok(v) => v,
                         Err(_) => {
-                            eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[1]);
                             return Err(RequestError::ParseIntError(content[1].clone()));
                         }
                     };
                     let (e_hour, e_minute) = match format_mmdd(&content[2]){
                         Ok(v) => v,
                         Err(_) => {
-                            eprintln!("{} Error formatting to MMDD: {}", ERROR, &content[2]);
                             return Err(RequestError::ParseIntError(content[2].clone()));
                         }
                     };
@@ -588,8 +626,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             format_two_digit_time(e_hour, e_minute)])
                         {
                             Ok(_) => {}
-                            Err(e) => {
-                                eprintln!("{} Error with Database: {}", ERROR, e);
+                            Err(_) => {
                                 return Err(RequestError::DatabaseError);
                             }
                         };
@@ -597,6 +634,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 4 => {
                     // POST Subjects - contains id and name
+                    if args.len() < 2{
+                        return Ok(not_enough_arguments(args.len(), 2));
+                    }
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -616,6 +656,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 5 => {
                     // POST Classrooms - contains id and name
+                    if args.len() < 2{
+                        return Ok(not_enough_arguments(args.len(), 2));
+                    }
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -635,6 +678,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 6 => {
                     // POST Duties - contains teacher id, classroom_id, day (1, 7), and break number 
+                    if args.len() < 4{
+                        return Ok(not_enough_arguments(args.len(), 4));
+                    }
                     let teacher_id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -676,6 +722,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 7 => {
                     // POST Classes - contains class number (UNIQUE!) and name
+                    if args.len() < 2{
+                        return Ok(not_enough_arguments(args.len(), 2));
+                    }
                     let id = match parsed_request.content[0].parse::<u8>(){
                         Ok(v) => v,
                         Err(_) => return Err(RequestError::ParseIntError(parsed_request.content[0].clone()))
@@ -696,7 +745,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 8 => {
                     // POST BreakHours - break_num, start_time, end_time
-                    let args = &parsed_request.content;
+                    if args.len() < 3{
+                        return Ok(not_enough_arguments(args.len(), 3));
+                    }
                     if let (Ok(break_num), Ok(start_time), Ok(end_time)) = 
                     (str::parse::<u8>(&args[0]), str::parse::<u16>(&args[1]), str::parse::<u16>(&args[2])){
                         let query = "INSERT INTO BreakHours (break_num, start_time, end_time) 
@@ -717,24 +768,17 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
         }
         Request::Other => {}
     }
-    Ok("418 I'm teapot".to_string())
+    Ok("msat/418-I'm-teapot".to_string())
 }
 
 async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<String>,u8), ConnectionError> {
-    let (mut request_type,mut content,mut password, mut request_num) : (Request,Vec<String>,Option<String>,u8) = 
-    (Request::Other,vec![],None,0);
-    let local_input = if input.ends_with("&"){
-        input
-    }
-    else{
-        &format!("{}&", input)
-    };
-
-    let mut version : u16 = 0;
-    let sliced_input = split_string_by(local_input, '&');
     if input[0..4] != *"msat"{
         return Err(ConnectionError::WrongHeader);
     }
+    let (mut request_type,mut content,mut password, mut request_num) : (Request,Vec<String>,Option<String>,u8) = 
+    (Request::Other,vec![],None,0);
+    let mut version : u16 = 0;
+    let sliced_input = split_string_by(input, '&');
     for word in sliced_input{
         if word.starts_with("msat/"){
             if let Ok(v) = split_string_by(&word, '/')[1].trim().parse::<u16>(){
@@ -796,6 +840,11 @@ async fn parse_request(input: &str) -> Result<(Request,Vec<String>, Option<Strin
     }
     Ok((request_type,content,password,request_num))
 }
+
+fn not_enough_arguments(found: usize, expected: u8) -> String{
+    return format!("msat/400-Bad-Request&get=Expected+{expected}+args+found+{found}");
+}
+
 #[cfg(test)]
 mod tests{
     use super::*;

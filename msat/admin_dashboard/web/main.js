@@ -130,7 +130,7 @@ $("input").addEventListener('change', (e) => {
 "(dzień tygodnia - cyfra (1-7)), (id nauczyciela - cyfra), (id klasy - cyfra), (id klasy(pomieszczenie) - cyfra), (id przedmiotu - cyfra), (numer lekcji - cyfra)"
 			}
 			else{
-				$("input_text").innerHTML = "(week_day: number 1-7), (teacher id - number), (classroom_id - number), (subject id - number), (lesson number - number)"
+				$("input_text").innerHTML = "(week_day: number 1-7), (teacher id - number), (class_id - number), (classroom_id - number), (subject id - number), (lesson number - number)"
 			}
 		}
 		else if (data.includes("2")){

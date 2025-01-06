@@ -13,17 +13,17 @@ use rusqlite::{self, OpenFlags};
 
 // Local Imports 
 use shared_components::{
-    database::*, password::get_password, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS, cli
+    database::*, password::get_password, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS, cli, config
 };
 
 #[tokio::main]
 #[allow(warnings)]
 async fn main(){
     cli::main();
-    init_httpserver(*LOCAL_IP).await;
+    init_httpserver().await;
 }
 
-pub async fn init_httpserver(ip_addr: IpAddr) {
+pub async fn init_httpserver() {
     if let Err(_) = init(*SQLITE_FLAGS).await{
         std::process::exit(-1);
     };
@@ -34,7 +34,23 @@ pub async fn init_httpserver(ip_addr: IpAddr) {
                 Err(_) => std::process::exit(-1)
             }
     ));
-    let final_address = format!("{}:8000", ip_addr.to_string());
+
+    let (ip, port) : (IpAddr, u16) = match config::get().await{
+        Ok(c) => {
+            if let Some(config) = c{
+                (config.http_server.tcp_ip.unwrap_or(*LOCAL_IP), 
+                 config.http_server.http_port)
+            }
+            else{
+                (*LOCAL_IP, 8000)
+            }
+        }
+        Err(_) => {
+            (*LOCAL_IP, 8000)
+        }
+    };
+
+    let final_address = format!("{}:{}", ip.to_string(), port);
     let listener: TcpListener = match TcpListener::bind(final_address) {
         Ok(v) => v,
         Err(_) => std::process::exit(-1),
@@ -187,13 +203,23 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
             }
             else{
                 password = req_args[1].clone();
-                if let Some(v) = get_password().await{
-                    if password != v{
-                        return "<db_col><db_row><p>Złe Hasło/Wrong Password</p></db_row></db_col>".to_string();
+                match get_password().await{
+                    Some(conf_password) => {
+                        if password != conf_password{
+                            return 
+                                "
+                                <db_col><db_row>
+                                <p>Password Entered isn't same as one that is used on server</p>
+                                <p>Hasło wprowadzone nie jest takie same jak ustawione na serwerze</p></db_row></db_col>
+                                "
+                                .to_string();
+                        }
                     }
-                }
-                else{
-                    return "<db_col><db_row><p>Błąd odczytu hasła/Error getting password</p></db_row></db_col>".to_string()
+                    None => {
+                        return "<db_col><db_row><p>Password isn't set, ask admin to set password</p>
+                            <p>Hasło nie zostało ustawione, spytaj administratora by ustawił hasło</p></db_row></db_col>"
+                            .to_string();
+                    }
                 }
             }
         }
@@ -344,7 +370,8 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                                 }
                                             };
                                             to_return.push_str(
-                                                &format!("<lesson id ='{lesson_num}'><p>{}</p><p>{} {}</p><p>{}</p></lesson>\n",
+                                                &format!("<lesson><p><strong>Lekcja/Lesson {}</strong></p><p>{}</p><p>{} {}</p><p>{}</p></lesson>\n",
+                                                    lesson_num,
                                                     subject_hashmap.get(si).unwrap_or(&si.to_string()),
                                                     first_name, last_name,
                                                     classroom_hashmap.get(cli).unwrap_or(&cli.to_string())));
@@ -611,6 +638,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
         "POST" => {
             match request_number{
                 0 => {
+                    if args.len() < 3{
+                        return not_enough_arguments(3, args.len());
+                    }
                     let query = "INSERT INTO BreakHours 
                         (break_num, start_time, end_time)
                         VALUES (?1, ?2, ?3)
@@ -636,6 +666,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                     return "<db_col><db_row><p>Napotkano błąd</p><p>Error occured</p></db_row></db_col>".to_string()
                 }
                 1 => {
+                    if args.len() < 6{
+                        return not_enough_arguments(6, args.len());
+                    }
                     let query = "INSERT INTO Lessons 
                             (week_day, class_id, classroom_id, subject_id, teacher_id, lesson_hour) 
                             VALUES (?1,?2,?3,?4,?5,?6)
@@ -673,6 +706,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                     }
                 }
                 2 => {
+                    if args.len() < 3{
+                        return not_enough_arguments(3, args.len());
+                    }
                     let query = "INSERT INTO Teachers (teacher_id, first_name, last_name) VALUES (?1, ?2, ?3)
                         ON CONFLICT (teacher_id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name";
                     let (teacher_id, first_name, last_name) = (
@@ -687,6 +723,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                     }
                 }
                 3 => {
+                    if args.len() < 4{
+                        return not_enough_arguments(4, args.len());
+                    }
                     let query = "INSERT INTO Duties (lesson_hour, teacher_id, classroom_id, week_day) VALUES (?1, ?2, ?3, ?4)
                         ON CONFLICT (lesson_hour, teacher_id, week_day) DO UPDATE SET classroom_id = excluded.classroom_id";
                     let (lesson_hour, teacher_id, classroom_id, week_day) = 
@@ -702,6 +741,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                     }
                 }
                 4 => {
+                    if args.len() < 2{
+                        return not_enough_arguments(2, args.len());
+                    }
                     let query = "INSERT INTO Subjects (subject_id, subject_name) VALUES (?1, ?2)
                         ON CONFLICT (subject_id) DO UPDATE SET subject_name = excluded.subject_name";
                     let (subject_id, subject_name) = 
@@ -715,6 +757,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                     }
                 }
                 5 => {
+                    if args.len() < 2{
+                        return not_enough_arguments(2, args.len());
+                    }
                     let query = "INSERT INTO Classes (class_id, class_name) VALUES (?1, ?2)
                         ON CONFLICT (class_id) DO UPDATE SET class_name = excluded.class_name";
                     let (class_id, class_name) = 
@@ -728,6 +773,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                     }
                 }
                 6 => {
+                    if args.len() < 2{
+                        return not_enough_arguments(2, args.len());
+                    }
                     let query = "INSERT INTO Classrooms (classroom_id, classroom_name) VALUES (?1, ?2)
                         ON CONFLICT (classroom_id) DO UPDATE SET classroom_name = excluded.classroom_name";
                     let (classroom_id, classroom_name) = 
@@ -741,6 +789,9 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                     }
                 }
                 7 => {
+                    if args.len() < 3{
+                        return not_enough_arguments(3, args.len());
+                    }
                     let query = "INSERT INTO LessonHours (lesson_num, start_time, end_time) VALUES (?1, ?2, ?3)
                         ON CONFLICT (lesson_num) DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time";
                     let (lesson_num, start_time, end_time) = 
@@ -772,6 +823,9 @@ fn not_found(tcp: &mut TcpStream) {
     else{
         cli::debug_log("Returned 404 to Client");
     }
+}
+fn not_enough_arguments(number_required: u8, number_entered: usize) -> String{
+    return format!("<db_col><db_row><p>Użytkownik użył za małej liczby argumentów, oczekiwano: {number_required}, znaleziono: {number_entered}</p><p>User provided too little arguments, expected: {number_required}, found: {number_entered}</p></db_row></db_col>")
 }
 
 fn strvec_to_str(vec: &Vec<String>) -> String{

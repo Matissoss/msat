@@ -28,10 +28,24 @@ impl ToString for Request{
 
 #[derive(PartialEq,Eq,Serialize,Deserialize,Clone,Debug, Default)]
 pub struct Configuration{
-    pub password : String,
-    pub port     : u16,
-    pub ip_addr  : Option<IpAddr>,
+    pub password           : String,
+    pub http_server        : HttpServerConfig,
+    pub application_server : AppServerConfig
 }
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HttpServerConfig{
+    pub http_port: u16,
+    pub max_connections: u16,
+    pub tcp_ip  : Option<IpAddr>
+}
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AppServerConfig{
+    pub port : u16,
+    pub max_connections: u16,
+    pub tcp_ip : Option<IpAddr>
+}
+
 #[allow(unused)]
 #[derive(Clone,Copy,Debug,PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConnectionError{
