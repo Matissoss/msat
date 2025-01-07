@@ -29,6 +29,7 @@ impl ToString for Request{
 #[derive(PartialEq,Eq,Serialize,Deserialize,Clone,Debug, Default)]
 pub struct Configuration{
     pub password           : String,
+    pub language           : Language,
     pub http_server        : HttpServerConfig,
     pub application_server : AppServerConfig
 }
@@ -193,21 +194,20 @@ impl SendToClient for ConnectionError{
     }
 }
 
+use std::collections::HashMap;
 #[derive(Clone)]
 pub struct ParsedRequest{
     pub request: Request,
-    pub content: Vec<String>,
-    pub password: Option<String>,
+    pub content: HashMap<String, String>,
     pub request_number: u8
 }
 
-impl From<(Request, Vec<String>, Option<String>, u8)> for ParsedRequest{
-    fn from(value: (Request, Vec<String>, Option<String>, u8)) -> Self {
-        let (req, con, pas, req_num) = value;
+impl From<(Request, HashMap<String, String>, u8)> for ParsedRequest{
+    fn from(value: (Request, HashMap<String, String>, u8)) -> Self {
+        let (req, con, req_num) = value;
         return ParsedRequest{
             request: req,
             content: con,
-            password: pas,
             request_number: req_num
         };
     }
@@ -253,4 +253,12 @@ pub struct BreakHours{
     pub break_num  : u8,
     pub start_time : u16,
     pub end_time   : u16
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Language{
+    #[default]
+    Unspecified,
+    Polish,
+    English
 }

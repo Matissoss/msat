@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<link href="main.css" rel="stylesheet">
+		<title>msat</title>
+	</head>
+	<body>
+		<h1 id="title">msat dashboard</h1>
+		<fieldset>
+		<legend id = "lang-t">Ustawienia</legend>
+		<form id="lang">
+			<select name="lang">
+				<option value="pl">Polski</option>
+				<option value="en">English</option>
+			</select>
+			<button>Zmień Język/Change Language</button>
+		</form>
+		</fieldset>
+		<fieldset>
+		<legend id = "data-t">Dane wejściowe</legend>
+		<form id="data">
+			<select name="method" id="input">
+			</select>
+			<p id="input_text" class="non-visible"></p>
+			<input type=text name="args" id="input_args" class="non-visible" placeholder="Argumenty/Arguments">
+			<input type=password name="password" placeholder="Hasło POST/POST Password">
+			<button id = "submit">Submit</button>
+		</form>
+		</fieldset>
+		<div id="response"></div>
+		<script src="main.js"></script>
+	</body>
+</html>

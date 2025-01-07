@@ -6,14 +6,14 @@
 
 // Global imports
 use std::{
-    collections::BTreeMap, io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
+    collections::{BTreeMap, HashMap}, io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
 };
 use tokio::sync::{Mutex, Semaphore};
 use rusqlite::{self, OpenFlags};
 
 // Local Imports 
 use shared_components::{
-    database::*, password::get_password, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS, cli, config
+    database::*, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS, cli, config
 };
 
 #[tokio::main]
@@ -35,19 +35,20 @@ pub async fn init_httpserver() {
             }
     ));
 
-    let (ip, port, max_limit, max_timeout) : (IpAddr, u16, u16, Arc<u64>) = match config::get().await{
+    let (ip, port, max_limit, max_timeout, lang) : (IpAddr, u16, u16, Arc<u64>, Arc<Language>) = match config::get().await{
         Ok(c) => {
             if let Some(config) = c{
                 (config.http_server.tcp_ip.unwrap_or(*LOCAL_IP), 
                  config.http_server.http_port, config.http_server.max_connections,
-                 Arc::new(config.http_server.max_timeout_seconds.into()))
+                 Arc::new(config.http_server.max_timeout_seconds.into()),
+                 Arc::new(config.language))
             }
             else{
-                (*LOCAL_IP, 8000, 100, Arc::new(10))
+                (*LOCAL_IP, 8000, 100, Arc::new(10), Arc::new(Language::default()))
             }
         }
         Err(_) => {
-            (*LOCAL_IP, 8000, 100, Arc::new(10))
+            (*LOCAL_IP, 8000, 100, Arc::new(10), Arc::new(Language::default()))
         }
     };
     let limit = Arc::new(Semaphore::new(max_limit.into()));
@@ -66,8 +67,9 @@ pub async fn init_httpserver() {
                 let cloned_timeout = Arc::clone(&max_timeout);
                 if let Ok(_) = tokio::time::timeout(std::time::Duration::from_secs(*cloned_timeout), 
                     cloned_permit.acquire_owned()).await{
-                    tokio::spawn(async {
-                        handle_connection(stream, cloned_dbptr).await;
+                    let lang = Arc::clone(&lang);
+                    tokio::spawn(async move {
+                        handle_connection(stream, cloned_dbptr, Arc::clone(&lang)).await;
                     });
                 }
             }
@@ -77,7 +79,7 @@ pub async fn init_httpserver() {
         }
     }
 }
-pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite::Connection>>) {
+pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) {
     let mut buffer = [0u8; 2048];
     if let Ok(len) = stream.read(&mut buffer) {
         if len == 0 {
@@ -115,7 +117,8 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                             }
                             else if w.starts_with("/?") && !w.starts_with("/?lang="){
                                 let cloned_dbptr = Arc::clone(&db_ptr);
-                                let response = handle_custom_request(&w, cloned_dbptr).await;
+                                let cloned_lang = Arc::clone(&lang);
+                                let response = handle_custom_request(&w, cloned_dbptr, cloned_lang).await;
                                 match stream.write_all(
                                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type: application/xml\r\n\r\n{}",
                                         response.len(), response).as_bytes())
@@ -181,59 +184,91 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
         }
     }
 }
-async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection>>) -> String{
-    // request example: /?method=POST&version=10&args=20
+async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) -> String{
+    // request example: /?method=POST+1&version=10&args=20
     let request = String::from_iter(request.chars().collect::<Vec<char>>()[2..].iter());
-    let mut request_type = "".to_string();
-    let mut args : Vec<String> = vec![];
-    let mut request_number = 0;
-    let mut password : String = "".to_string();
+    let mut args : HashMap<String, String> = HashMap::new();
     let req_split = split_string_by(&request, '&');
-
     for s in req_split{
-        if s.starts_with("args="){
-            args = 
-                split_string_by(&strvec_to_str(&split_string_by(&s, '=')[1..].to_vec()),'+');
+        if let Some((key, value)) = s.split_once('='){
+            args.insert(key.to_string(), value.to_string());
         }
-        else if s.starts_with("method="){
-            let request_arguments = split_string_by(&strvec_to_str(&split_string_by(&s, '=')[1..].to_vec()),'+');
-            request_type = request_arguments[0].to_string();
-            if let Ok(v) = str::parse::<u8>(&request_arguments[1]){
-                request_number = v;
+    }
+
+    if let Some(password) = args.get("password"){
+        if let Some(set_password) = shared_components::password::get_password().await{
+            if set_password != *password
+            {
+                if *lang == Language::Polish{
+                    return "<error>
+                    <p>Wprowadzone złe hasło</p></error>".to_string();
+                }
+                else{
+                    return "<error><p>Wrong password was entered</p>
+                    </error>".to_string();
+                }
             }
         }
-        else if s.starts_with("password="){
-            let req_args = split_string_by(&s, '=');
-            if req_args.len() <= 1 {
-                return "<db_col><db_row><p>Brak Hasła/No Password</p></db_row></db_col>".to_string();
+        else{
+            if *lang == Language::Polish{
+                return "<error><p>Nie udało się uzyskać hasła, spytaj administratora</p></error>".to_string();
             }
             else{
-                password = req_args[1].clone();
-                match get_password().await{
-                    Some(conf_password) => {
-                        if password != conf_password{
-                            return 
-                                "
-                                <db_col><db_row>
-                                <p>Password Entered isn't same as one that is used on server</p>
-                                <p>Hasło wprowadzone nie jest takie same jak ustawione na serwerze</p></db_row></db_col>
-                                "
-                                .to_string();
-                        }
+                return "<error><p>Couldn't get password, ask admin</p></db_row></error>".to_string();
+            }
+        }
+    }
+    else{
+        if *lang == Language::Polish{
+            return "<error><p>Nie znaleziono hasła</p></error>".to_string();
+        }
+        else{
+            return "<error><p>Couldn't find password</p></error>".to_string();
+        }
+    }
+
+    let (method, method_num) = match args.get("method"){
+        Some(value) => {
+            if let Some((method, method_num)) = value.split_once('+'){
+                if let Ok(method_num) = method_num.parse::<u8>(){
+                    (method, method_num)
+                }
+                else{
+                    if *lang == Language::Polish{
+                        return "<error>
+                            <p>Numer metody nie mógł być przerobiony na liczbę 8-bitową</p></error>"
+                            .to_string();
                     }
-                    None => {
-                        return "<db_col><db_row><p>Password isn't set, ask admin to set password</p>
-                            <p>Hasło nie zostało ustawione, spytaj administratora by ustawił hasło</p></db_row></db_col>"
+                    else{
+                        return "<error><p>Method Number couldn't be parsed to 8-bit u_int</p></error>"
                             .to_string();
                     }
                 }
             }
+            else{
+                if *lang == Language::Polish{
+                    return "<error><p>Nie udało się przetworzyć metody</p></error>".to_string();
+                }
+                else{
+                    return "<error><p>Couldn't parse method</p></error>".to_string();
+                }
+            }
         }
-    }
-    println!("REQUEST: \"{}\", {}, \"{}\"", request_type, request_number, strvec_to_str(&args));
-    match request_type.as_str(){
+        None => {
+            if *lang == Language::Polish{
+                return "<error>
+                <p>Nie udało się znaleźć pola nazwanego 'metody'</p></error>".to_string();
+            }
+            else{
+                return "<error><p>Couldn't find argument named 'method'</p>
+                </error>".to_string();
+            }
+        }
+    };
+
+    match method{
         "GET" => {
-            match request_number{
+            match method_num{
                 0 => {
                     let database = db.lock().await;
                     let query = "SELECT * FROM Lessons";
@@ -257,8 +292,14 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                     get_teachers(&database)
                                 );
                             if class_hashmap.len() == 0 || classroom_hashmap.len() == 0 || subject_hashmap.len() == 0{
-                            return 
-                            "<db_col><db_row><p>Nie znaleziono Danych</p><p>No Data found</p></db_row></db_col>".to_string();
+                                if *lang == Language::Polish{
+                                    return 
+                                    "<status><p>Nie znaleziono Danych, wypełnij bazę danych na początku</p></status>".to_string();
+                                }
+                                else{
+                                    return 
+                                    "<status><p>No Data found, Fill out the database first</p></status>".to_string();
+                                }
                             }
                             let filtered_iter : Vec<Lesson> 
                                 = iter.filter(|s| s.is_ok())
@@ -292,6 +333,12 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                         (teacher.to_string(), "".to_string())
                                     }
                                 };
+                                let lesson = if *lang == Language::Polish{
+                                    "Lekcja"
+                                }
+                                else{
+                                    "Lesson"
+                                };
                                 to_return.push_str(&format!("<class id='{teacher}'><p>{} {}</p><w>\n", 
                                         first_name, last_name));
                                 for weekd in 1..=7u8{
@@ -300,7 +347,7 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                         if let Some((si, cli, ci)) = sorted_map.get(&(teacher, weekd, lesson_num)){
                                             to_return.push_str(
                                             &format!
-                                            ("<lesson><p><strong>Lekcja/Lesson{lesson_num}</strong></p>
+                                            ("<lesson><p><strong>{lesson} {lesson_num}</strong></p>
                                              <p>{}</p><p>{}</p><p>{}</p></lesson>\n",
                                                     subject_hashmap.get(si).unwrap_or(&si.to_string()),
                                                     class_hashmap.get(ci).unwrap_or(&ci.to_string()),
@@ -362,6 +409,12 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                     llh = lessonh;
                                 }
                             }
+                            let lesson = if *lang == Language::Polish{
+                                "Lekcja"
+                            }
+                            else{
+                                "Lesson"
+                            };
                             for class in 1..=*lc{
                                 to_return.push_str(&format!("<class id='{class}'><p>{}</p><w>\n", 
                                         class_hashmap.get(&class).unwrap_or(&class.to_string())));
@@ -376,7 +429,7 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                                 }
                                             };
                                             to_return.push_str(
-                                                &format!("<lesson><p><strong>Lekcja/Lesson {}</strong></p><p>{}</p><p>{} {}</p><p>{}</p></lesson>\n",
+                                                &format!("<lesson><p><strong>{lesson} {}</strong></p><p>{}</p><p>{} {}</p><p>{}</p></lesson>\n",
                                                     lesson_num,
                                                     subject_hashmap.get(si).unwrap_or(&si.to_string()),
                                                     first_name, last_name,
@@ -408,12 +461,31 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .map(|s| s.unwrap())
                                 .filter(|s| s.first_name.is_empty()==false&&s.last_name.is_empty()==false&&s.teacher_id!=0)
                                 .collect();
-                            let mut to_return : String = String::from("<db_col>
+                            let mut to_return : String = format!("<db_col>
                                 <db_row>
-                                <p id='1'>Teacher ID</p>
-                                <p id='2'>First Name</p>
-                                <p id='3'>Last Name</p>
-                                </db_row>");
+                                <p>{}</p>
+                                <p>{}</p>
+                                <p>{}</p>
+                                </db_row>",
+                                if *lang == Language::Polish{
+                                    "ID Nauczyciela"
+                                }
+                                else{
+                                    "Teacher ID"
+                                },
+                                if *lang == Language::Polish{
+                                    "Imię"
+                                }
+                                else{
+                                    "First Name"
+                                },
+                                if *lang == Language::Polish{
+                                    "Nazwisko"
+                                }
+                                else{
+                                    "Last Name"
+                                }
+                            );
                             for e in filtered_iter{
                                 to_return.push_str(
                                     format!("<db_row>
@@ -445,13 +517,38 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .map(|s| s.unwrap())
                                 .filter(|s| s.break_num!=0&&s.teacher_id!=0&&&s.break_place!=""&&s.week_day!=0)
                                 .collect();
-                            let mut to_return : String = String::from("<db_col>
+                            let mut to_return : String = format!("<db_col>
                                 <db_row>
-                                <p id='1'>Break Number</p>
-                                <p id='2'>Teacher ID</p>
-                                <p id='3'>Break Place</p>
-                                <p id='4'>Week Day</p>
-                                </db_row>");
+                                <p>{}</p>
+                                <p>{}</p>
+                                <p>{}</p>
+                                <p>{}</p>
+                                </db_row>",
+                                if *lang == Language::Polish{
+                                    "Numer Przerwy"
+                                }
+                                else{
+                                    "Break Number"
+                                },
+                                if *lang == Language::Polish{
+                                    "ID Nauczyciela"
+                                }
+                                else{
+                                    "Teacher ID"
+                                },
+                                if *lang == Language::Polish{
+                                    "Miejsce Przerwy"
+                                }
+                                else{
+                                    "Break Place"
+                                },
+                                if *lang == Language::Polish{
+                                    "Dzień Tygodnia"
+                                }
+                                else{
+                                    "Week Day"
+                                }
+                            );
                             for e in filtered_iter{
                                 to_return.push_str(
                                     format!("<db_row>
@@ -482,11 +579,24 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .map(|s| s.unwrap())
                                 .filter(|s| s.subject_name.is_empty()==false&&s.subject_id!=0)
                                 .collect();
-                            let mut to_return : String = String::from("<db_col>
+                            let mut to_return : String = format!("<db_col>
                                 <db_row>
-                                <p id='1'>Subject ID</p>
-                                <p id='2'>Subject Name</p>
-                                </db_row>");
+                                <p>{}</p>
+                                <p>{}</p>
+                                </db_row>",
+                                if *lang == Language::Polish{
+                                    "ID Przedmiotu"
+                                }
+                                else{
+                                    "Subject ID"
+                                },
+                                if *lang == Language::Polish{
+                                    "Nazwa Przedmiotu"
+                                }
+                                else{
+                                    "Subject Name"
+                                }
+                            );
                             for e in filtered_iter{
                                 to_return.push_str(
                                     format!("<db_row>
@@ -515,11 +625,24 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .map(|s| s.unwrap())
                                 .filter(|s| s.class_name.is_empty()==false&&s.class_id!=0)
                                 .collect();
-                            let mut to_return : String = String::from("<db_col>
+                            let mut to_return : String = format!("<db_col>
                                 <db_row>
-                                <p id='1'>Class ID</p>
-                                <p id='2'>Class Name</p>
-                                </db_row>");
+                                <p>{}</p>
+                                <p>{}</p>
+                                </db_row>",
+                                if *lang == Language::Polish{
+                                    "ID Klasy"
+                                }
+                                else{
+                                    "Class ID"
+                                },
+                                if *lang == Language::Polish{
+                                    "Nazwa Klasy"
+                                }
+                                else{
+                                    "Class Name"
+                                }
+                            );
                             for e in filtered_iter{
                                 to_return.push_str(
                                     format!("<db_row>
@@ -548,11 +671,24 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .map(|s| s.unwrap())
                                 .filter(|s| s.classroom_id!=0&&s.classroom_name.is_empty()==false)
                                 .collect();
-                            let mut to_return : String = String::from("<db_col>
+                            let mut to_return : String = format!("<db_col>
                                 <db_row>
-                                <p id='1'>Classroom ID</p>
-                                <p id='2'>Classroom Name</p>
-                                </db_row>");
+                                <p>{}</p>
+                                <p>{}</p>
+                                </db_row>",
+                                if *lang == Language::Polish{
+                                    "Numer Klasy (Pomieszczenie)"
+                                }
+                                else{
+                                    "Classroom Number"
+                                },
+                                if *lang == Language::Polish{
+                                    "Nazwa Klasy (Pomieszczenie)"
+                                }
+                                else{
+                                    "Classroom Name"
+                                }
+                            );
                             for e in filtered_iter{
                                 to_return.push_str(
                                     format!("<db_row>
@@ -582,12 +718,31 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .map(|s| s.unwrap())
                                 .filter(|s| s.lesson_num!=0&&s.start_time!=0&&s.end_time!=0)
                                 .collect();
-                            let mut to_return : String = String::from("<db_col>
+                            let mut to_return : String = format!("<db_col>
                                 <db_row>
-                                <p id='1'>Lesson Number</p>
-                                <p id='2'>Start Time</p>
-                                <p id='3'>End Time</p>
-                                </db_row>");
+                                <p>{}</p>
+                                <p>{}</p>
+                                <p>{}</p>
+                                </db_row>",
+                                if *lang == Language::Polish{
+                                    "Numer Lekcji"
+                                }
+                                else{
+                                    "Lesson Number"
+                                },
+                                if *lang == Language::Polish{
+                                    "Godzina Rozpoczęcia"
+                                }
+                                else{
+                                    "Start Time"
+                                },
+                                if *lang == Language::Polish{
+                                    "Godzina Zakończenia"
+                                }
+                                else{
+                                    "End Time"
+                                }
+                            );
                             for e in filtered_iter{
                                 to_return.push_str(
                                     format!("<db_row>
@@ -618,12 +773,31 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 .map(|s| s.unwrap())
                                 .filter(|s| s.break_num!=0&&s.start_time!=0&&s.end_time!=0)
                                 .collect();
-                            let mut to_return : String = String::from("<db_col>
+                            let mut to_return : String = format!("<db_col>
                                 <db_row>
-                                <p id='1'>Break Number</p>
-                                <p id='2'>Start Time</p>
-                                <p id='3'>End Time</p>
-                                </db_row>");
+                                <p>{}</p>
+                                <p>{}</p>
+                                <p>{}</p>
+                                </db_row>",
+                                if *lang == Language::Polish{
+                                    "Numer Przerwy"
+                                }
+                                else{
+                                    "Break Number"
+                                },
+                                if *lang == Language::Polish{
+                                    "Godzina Rozpoczęcia"
+                                }
+                                else{
+                                    "Start Time"
+                                },
+                                if *lang == Language::Polish{
+                                    "Godzina Zakończecia"
+                                }
+                                else{
+                                    "End Time"
+                                }
+                            );
                             for e in filtered_iter{
                                 to_return.push_str(
                                     format!("<db_row>
@@ -642,184 +816,169 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
             }
         }
         "POST" => {
-            match request_number{
+            match method_num{
                 0 => {
-                    if args.len() < 3{
-                        return not_enough_arguments(3, args.len());
-                    }
                     let query = "INSERT INTO BreakHours 
                         (break_num, start_time, end_time)
                         VALUES (?1, ?2, ?3)
                         ON CONFLICT (break_num)
                         DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time";
-                    let (break_num, start_time, end_time) = 
-                        (
-                            str::parse::<u8>(args[0].trim()), str::parse::<u16>(args[1].trim()),
-                            str::parse::<u16>(args[2].trim())
-                        );
-                    if let (Ok(break_num1), Ok(start_time1), Ok(end_time1)) = (break_num, start_time, end_time){
-                        let database = db.lock().await;
-                        match database.execute(&query, [break_num1.into(), start_time1, end_time1]){
-                            Ok(_) => {
-                                return 
-                                    "<db_col><db_row><p>Pomyślnie dodano dane do bazy danych</p>
-                                    <p>Successfully added data to database</p></db_row></db_col>".to_string()
-                            }
-                            Err(_) => {
-                            }
+                    if let (Some(break_num), Some(start_time), Some(end_time)) 
+                        = (args.get("arg1"), args.get("arg2"), args.get("arg3"))
+                    {
+                        if let (Some((_, value)), Some((_, value1)), Some((_, value2))) = 
+                        (break_num.split_once('='),start_time.split_once('='),end_time.split_once('='))
+                        {
+                           let database = db.lock().await;
+                           match database.execute(&query, [value.into(), value1, value2]){
+                                Ok(_) => return database_insert_error_msg(&*lang),
+                                Err(_) => return database_insert_success_msg(&*lang)
+                           }
                         }
+                    };
+                    if *lang == Language::Polish{
+                        return "<error><p>Napotkano błąd</p></error>".to_string()
                     }
-                    return "<db_col><db_row><p>Napotkano błąd</p><p>Error occured</p></db_row></db_col>".to_string()
+                    else{
+                        return "<error><p>Error occured</p></error>".to_string()
+                    }
                 }
                 1 => {
-                    if args.len() < 6{
-                        return not_enough_arguments(6, args.len());
-                    }
                     let query = "INSERT INTO Lessons 
                             (week_day, class_id, classroom_id, subject_id, teacher_id, lesson_hour) 
                             VALUES (?1,?2,?3,?4,?5,?6)
                             ON CONFLICT (class_id, lesson_hour, week_day) 
                             DO UPDATE SET classroom_id = excluded.classroom_id, subject_id = excluded.subject_id,
                             teacher_id = excluded.teacher_id;";
-                    let (class_id, classroom_id, subject_id, teacher_id, lesson_num, week_day) = 
-                    (
-                        str::parse::<u8>(args[2].trim()), str::parse::<u8>(args[3].trim()),
-                        str::parse::<u8>(args[4].trim()), str::parse::<u8>(args[1].trim()),
-                        str::parse::<u8>(args[5].trim()), str::parse::<u8>(args[0].trim())
-                    );
-                    if class_id.is_ok()&classroom_id.is_ok()&subject_id.is_ok()
-                        &teacher_id.is_ok()&lesson_num.is_ok()&week_day.is_ok()== true
+                    if let (Some(class_id), Some(classroom_id), Some(subject_id), Some(teacher_id), Some(lesson_num), Some(week_day)) =
+                    (args.get("arg1"), args.get("arg2"), args.get("arg3"), args.get("arg4"), args.get("arg5"), args.get("arg6"))
                     {
-                        let (u_class, u_classroom, u_subject, u_teacher, u_lesson, u_weekday) = 
-                        (class_id.unwrap(), classroom_id.unwrap(), subject_id.unwrap(), teacher_id.unwrap(), 
-                         lesson_num.unwrap(),week_day.unwrap());
-                        let database = db.lock().await;
-                        if let Ok(_) = database.execute(&query, 
-                            [u_weekday, u_class, u_classroom, u_subject, u_teacher, u_lesson])
+                        if let (Some((_, class)), Some((_, classroom)), Some((_, subject)), Some((_, teacher)), Some((_, lesson)), Some((_, weekd))) =
+                        (class_id.split_once('='), classroom_id.split_once('='), subject_id.split_once('='), teacher_id.split_once('='),
+                         lesson_num.split_once('='), week_day.split_once('=')) 
                         {
-                            return 
-                                "<db_col><db_row><p>Successfully added data</p></db_row>
-                                <db_row><p>Pomyślnie dodano dane do bazy danych</p></db_row></db_col>".to_string()
-                        } else{
-                            return "<db_col>
-                            <db_row><p>Error</p></db_row>
-                            <db_row><p>Błąd</p></db_row>
-                                </db_col>".to_string()
-                        };
+                            let database = db.lock().await;
+                            
+                            return match database.execute(&query, [weekd, class, classroom, subject, teacher, lesson])
+                            {
+                                Ok(_) => database_insert_success_msg(&*lang),
+                                Err(_) => database_insert_error_msg(&*lang)
+                            }
+                            
+                        }
                     }
                     else{
-                        return "<db_col><db_row><p>Error 1</p></db_row><db_row><p>Błąd 1</p></db_row></db_col>".to_string()
+                        return database_insert_error_msg(&*lang);
                     }
                 }
                 2 => {
-                    if args.len() < 3{
-                        return not_enough_arguments(3, args.len());
-                    }
-                    let query = "INSERT INTO Teachers (teacher_id, first_name, last_name) VALUES (?1, ?2, ?3)
-                        ON CONFLICT (teacher_id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name";
-                    let (teacher_id, first_name, last_name) = (
-                        str::parse::<u8>(args[0].trim()), &args[1], &args[2]
-                        );
-                    if teacher_id.is_ok()&!first_name.is_empty()&!last_name.is_empty() == true{
-                        let database = db.lock().await;
-                        match database.execute(&query, [&teacher_id.unwrap().to_string(), first_name, last_name]){
-                            Ok(_) => return "<db_col><db_row><p>Success/Sukces</p></db_row></db_col>".to_string(),
-                            Err(e) => return format!("<db_col><db_row><p>Error/Błąd</p></db_row><db_row><p>{}</p></db_row></db_col>", e.to_string())
+                    if let (Some(teacher_id), Some(first_name), Some(last_name)) = (args.get("arg1"), args.get("arg2"), args.get("arg3"))
+                    {
+                        if let (Some((_, teacher)), Some((_, first_name1)), Some((_, last_name1))) = 
+                        (teacher_id.split_once('='), first_name.split_once('='), last_name.split_once('='))
+                        {
+                            let query = "INSERT INTO Teachers (teacher_id, first_name, last_name) VALUES (?1, ?2, ?3) 
+                            ON CONFLICT (teacher_id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name";
+                            let database = db.lock().await;
+                            match database.execute(&query, [&teacher, first_name1, last_name1]){
+                                Ok(_) => return database_insert_success_msg(&*lang),
+                                Err(_) => return database_insert_error_msg(&*lang)
+                            }
                         }
+                    }
+                    else{
+                        return database_insert_error_msg(&*lang);
                     }
                 }
                 3 => {
-                    if args.len() < 4{
-                        return not_enough_arguments(4, args.len());
-                    }
                     let query = "INSERT INTO Duties (lesson_hour, teacher_id, classroom_id, week_day) VALUES (?1, ?2, ?3, ?4)
                         ON CONFLICT (lesson_hour, teacher_id, week_day) DO UPDATE SET classroom_id = excluded.classroom_id";
-                    let (lesson_hour, teacher_id, classroom_id, week_day) = 
-                        (
-                            str::parse::<u8>(args[0].trim()), str::parse::<u8>(args[1].trim()), str::parse::<u8>(args[2].trim()), str::parse::<u8>(args[3].trim())
-                        );
-                    if lesson_hour.is_ok()&teacher_id.is_ok()&classroom_id.is_ok()&week_day.is_ok() == true{
-                        let database = db.lock().await;
-                        match database.execute(&query, [lesson_hour.unwrap(), teacher_id.unwrap(), classroom_id.unwrap(), week_day.unwrap()]){
-                            Ok(_) => return "<db_col><db_row><p>Success/Sukces</p></db_row></db_col>".to_string(),
-                            Err(e) => return format!("<db_col><db_row><p>Error/Błąd: {}</p></db_row></db_col>", e.to_string())
+                    if let (Some(lesson_hour), Some(teacher_id), Some(classroom_id), Some(week_day)) = 
+                    (args.get("arg1"), args.get("arg2"), args.get("arg3"), args.get("arg4")) 
+                    {
+                        if let (Some((_, lesson)), Some((_, teacher)), Some((_, classroom)), Some((_, weekd))) =
+                        (lesson_hour.split_once('='), teacher_id.split_once('='), classroom_id.split_once('='), week_day.split_once('='))
+                        {
+                            let database = db.lock().await;
+                            match database.execute(&query, [lesson, teacher, classroom, weekd]){
+                                Ok(_) => return database_insert_success_msg(&*lang),
+                                Err(_) => return database_insert_error_msg(&*lang)
+                            }
                         }
-                    }
+                    };
                 }
                 4 => {
-                    if args.len() < 2{
-                        return not_enough_arguments(2, args.len());
-                    }
                     let query = "INSERT INTO Subjects (subject_id, subject_name) VALUES (?1, ?2)
                         ON CONFLICT (subject_id) DO UPDATE SET subject_name = excluded.subject_name";
-                    let (subject_id, subject_name) = 
-                        (str::parse::<u8>(args[0].trim()), &args[1]);
-                    if !subject_name.is_empty()&&subject_id.is_ok() == true{
-                        let database = db.lock().await;
-                        match database.execute(&query, [&subject_id.unwrap().to_string(), subject_name]){
-                            Ok(_) => return "<db_col><db_row><p>Sukces/Success</p></db_row></db_col>".to_string(),
-                            Err(e) => return format!("<db_col><db_row><p>Błąd/Error {}</p></db_row></db_col>", e)
+                    if let (Some(subject_id), Some(subject_name)) = (args.get("arg1"), args.get("arg2"))
+                    {
+                        if let (Some((_, id)), Some((_, name))) = (subject_id.split_once('='), subject_name.split_once('='))
+                        {
+                            let database = db.lock().await;
+                            match database.execute(&query, [id, name]){
+                                Ok(_) => return database_insert_success_msg(&*lang),
+                                Err(_) => return database_insert_error_msg(&*lang)
+                            }
                         }
-                    }
+                    };
                 }
                 5 => {
-                    if args.len() < 2{
-                        return not_enough_arguments(2, args.len());
-                    }
                     let query = "INSERT INTO Classes (class_id, class_name) VALUES (?1, ?2)
                         ON CONFLICT (class_id) DO UPDATE SET class_name = excluded.class_name";
-                    let (class_id, class_name) = 
-                        (str::parse::<u8>(args[0].trim()), &args[1]);
-                    if class_id.is_ok()&!class_name.is_empty() == true{
-                        let database = db.lock().await;
-                        match database.execute(&query, [&class_id.unwrap().to_string(), class_name]){
-                            Ok(_) => return "<db_col><db_row><p>Sukces/Success</p></db_row></db_col>".to_string(),
-                            Err(e) => return format!("<db_col><db_row><p>Błąd/Error {}</p></db_row></db_col>", e)
+                    if let (Some(class_id), Some(class_name)) = (args.get("arg1"), args.get("arg2")) 
+                    {
+                        if let (Some((_, id)), Some((_, name))) = (class_id.split_once('='), class_name.split_once('=')){
+                            let database = db.lock().await;
+                            match database.execute(&query, [id, name]){
+                                Ok(_) => return database_insert_success_msg(&*lang),
+                                Err(_) => return database_insert_error_msg(&*lang)
+                            }
                         }
-                    }
+                    };
                 }
                 6 => {
-                    if args.len() < 2{
-                        return not_enough_arguments(2, args.len());
-                    }
                     let query = "INSERT INTO Classrooms (classroom_id, classroom_name) VALUES (?1, ?2)
                         ON CONFLICT (classroom_id) DO UPDATE SET classroom_name = excluded.classroom_name";
-                    let (classroom_id, classroom_name) = 
-                        (str::parse::<u8>(args[0].trim()), &args[1]);
-                    if classroom_id.is_ok()&!classroom_name.is_empty() == true{
-                        let database = db.lock().await;
-                        match database.execute(&query, [&classroom_id.unwrap().to_string(), classroom_name]){
-                            Ok(_) => return "<db_col><db_row><p>Sukces/Success</p></db_row></db_col>".to_string(),
-                            Err(e) => return format!("<db_col><db_row><p>Błąd/Error {}</p></db_row></db_col>", e)
+                    if let (Some(classroom_id), Some(classroom_name)) = (args.get("arg1"), args.get("arg2")) 
+                    {
+                        if let (Some((_, id)), Some((_, name))) = (classroom_id.split_once('='), classroom_name.split_once('=')){
+                            let database = db.lock().await;
+                            match database.execute(&query, [id, name]){
+                                Ok(_) => return database_insert_success_msg(&*lang),
+                                Err(_) => return database_insert_error_msg(&*lang)
+                            }
                         }
-                    }
+                    };
                 }
                 7 => {
-                    if args.len() < 3{
-                        return not_enough_arguments(3, args.len());
-                    }
                     let query = "INSERT INTO LessonHours (lesson_num, start_time, end_time) VALUES (?1, ?2, ?3)
                         ON CONFLICT (lesson_num) DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time";
-                    let (lesson_num, start_time, end_time) = 
-                        (str::parse::<u8>(args[0].trim()), str::parse::<u16>(args[1].trim()), str::parse::<u16>(args[2].trim()));
-                    if lesson_num.is_ok()&start_time.is_ok()&end_time.is_ok() == true{
-                        let database = db.lock().await;
-                        match database.execute(&query, [lesson_num.unwrap().into(), start_time.unwrap(), end_time.unwrap()]){
-                            Ok(_) => return "<db_col><db_row><p>Sukces/Success</p></db_row></db_col>".to_string(),
-                            Err(e) => return format!("<db_col><db_row><p>Błąd/Error {}</p></db_row></db_col>", e)
+                    if let (Some(lesson_num), Some(start_time), Some(end_time)) = (args.get("arg1"), args.get("arg2"), args.get("arg3"))
+                    {
+                        if let (Some((_, lesson)), Some((_, start)), Some((_, end))) = 
+                        (lesson_num.split_once('='), start_time.split_once('='), end_time.split_once('='))
+                        {
+                            let database = db.lock().await;
+                            match database.execute(&query, [lesson, start, end]){
+                                Ok(_) => return database_insert_success_msg(&*lang),
+                                Err(_) => return database_insert_error_msg(&*lang)
+                            }
                         }
                     }
                 }
                 _ => {
-                    return "<h1>Unknown request/Nieznane zapytanie</h1>".to_string()
                 }
             }
         }
         _ => {
-            return "<h1>Error - wrong request</h1>".to_string();
         }
     }
-    return "<h1>Couldn't get any data</h1>".to_string();
+    if *lang == Language::Polish{
+        return "<error><p>Nie byliśmy w stanie zdobyć żadnych informacji</p></error>".to_string();
+    }
+    else{
+        return "<error><p>We coudln't get any data from server</p></error>".to_string();
+    }
 }
 
 fn not_found(tcp: &mut TcpStream) {
@@ -830,22 +989,7 @@ fn not_found(tcp: &mut TcpStream) {
         cli::debug_log("Returned 404 to Client");
     }
 }
-fn not_enough_arguments(number_required: u8, number_entered: usize) -> String{
-    return format!("<db_col><db_row><p>Użytkownik użył za małej liczby argumentów, oczekiwano: {number_required}, znaleziono: {number_entered}</p><p>User provided too little arguments, expected: {number_required}, found: {number_entered}</p></db_row></db_col>")
-}
 
-fn strvec_to_str(vec: &Vec<String>) -> String{
-    let mut finstr = "".to_string();
-    for e in vec {
-        if finstr.as_str() != ""{
-            finstr = format!("{} {}", finstr, e);
-        }
-        else{
-            finstr = e.to_string();
-        }
-    }
-    return finstr
-}
 #[allow(dead_code)]
 fn get_types(line: String) -> Vec<String> {
     let split_line = line.split_whitespace().collect::<Vec<&str>>();
@@ -858,6 +1002,24 @@ fn get_types(line: String) -> Vec<String> {
     types
 }
 
+fn database_insert_success_msg(lang: &Language) -> String{
+    return if lang == &Language::Polish{
+        "<success><p>Pomyślnie dodano dane do bazy danych</p></success>".to_string()
+    }
+    else{
+        "<success><p>Successfully added data to database</p></success>".to_string()
+    };
+}
+
+fn database_insert_error_msg(lang: &Language) -> String{
+    return if lang == &Language::Polish{
+        "<error><p>Wystąpił błąd podczas dodawania danych do bazy danych, sprawdź czy zapytanie jest poprawne, 
+            a w ostateczności skontaktuj się z administratorem</p></error>".to_string()
+    }
+    else{
+        "<error><p>Error occured while adding data to database, check if request is correct and if it is, then ask admin</p></error>".to_string()
+    };
+}
 fn weekd_to_string(weekd: u8) -> String{
     match weekd{
         1 => "Mon.".to_string(),
