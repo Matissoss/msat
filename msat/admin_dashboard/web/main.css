@@ -1,62 +1,96 @@
+:root{
+	--primary: gray;
+	--secondary: white;
+}
+
 body{
 	background-color: black;
-	color: white;
+	color: white
 }
-db_col, class, w{
-	display: flex;
-	flex-direction: column;
-}
-db_row, weekd{
+
+nav{
 	display: flex;
 	flex-direction: row;
+	margin:auto;
+	background-color: var(--primary);
+	padding: 1vw;
 }
-class p{
-	width: 97vw;
+
+h1, h2 {
 	text-align: center;
+}
+
+lessons{
+	display: flex;
+	flex-direction: row;
+	justify-content: center;
+	border: 0.125vw dashed white;
+	padding-top: 2vh;
+	padding-bottom: 2vh;
+}
+weekd{
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
-	height: 7vh;
-	border: solid 0.125vw white;
+	padding: 0.25vw;
+	width: 17.5vw;
+	margin: auto;
+	border: solid white 0.125vw;
 }
-db_row p, weekd p, lesson{
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	width: 9vw;
-	height: 10vh;
-	margin: 0;
-	text-align: center;
-	border: solid 0.125vw white;
+
+weekd p{
+	font-weight: bolder;
+	font-style: italic;
+	font-size: 140%;
+	padding-bottom: 0.25vw;
+	border-bottom: 0.125vw white solid;
 }
+
 lesson{
-	height: 10vh;
-	text-align: center;
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
+	width: 90%;
+	margin: auto;
+	border: solid white 0.125vw;
 }
-lesson p {
-	width: auto;
-	text-align: center;
-	border: 0;
+
+lesson *{
+	font-size: 120%;
 	margin: auto;
 }
-h1 {text-align: center;}
-#lang{
-	display: flex;
-	flex-direction: column;
-	justify-content: center;
+
+lesson strong{
+	border-bottom: solid white 0.125vw
+}
+
+lesson p{
+	font-style: normal;
+	font-weight: 500;
+	font-size: 100%;
+	border: none;
+}
+nav a{
 	margin: auto;
+	color: var(--secondary);
+	text-decoration: none;
+	font-size: 120%;
 }
-#lang select{
-	text-align: center;
+nav a:hover{
+	color: blue;
+	text-decoration: underline;
+	text-decoration-thickness: .5vw;
 }
-#data{
-	display: flex;
-	flex-direction: column;
-	justify-content: center;
-}
-.non-visible{
-	display: none;
+
+@media only screen and (max-width: 700px){
+	lessons{
+		flex-direction: column;
+	}
+	weekd{
+		width: 80%;
+		margin: auto;
+		padding-bottom: 5vh;
+	}
+	weekd p{
+		text-align: center;
+	}
 }

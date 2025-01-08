@@ -262,3 +262,24 @@ pub enum Language{
     Polish,
     English
 }
+
+impl Language{
+    pub fn english_or(&self, english: &str, polish: &str) -> String{
+        match self{
+            Self::Polish => {
+                return polish.to_string()
+            }
+            Self::English => {
+                return english.to_string()
+            }
+            Self::Unspecified => {
+                "".to_string()
+            }
+        }
+    }
+}
+
+pub enum Orb<T, Y>{
+    Data(T),
+    Alt(Y)
+}

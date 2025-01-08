@@ -15,6 +15,8 @@ use rusqlite::{self, OpenFlags};
 use shared_components::{
     database::*, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS, cli, config
 };
+use web::dashboard;
+mod web;
 
 #[tokio::main]
 #[allow(warnings)]
@@ -149,11 +151,13 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
             cli::debug_log(&format!("file_path = {}", file_path));
 
             if binary == false {
-                if let Ok(buf) = tokio::fs::read(file_path).await {
+                if let Ok(buf) = tokio::fs::read(&file_path).await {
                     if let Ok(string) = String::from_utf8(buf.clone()) {
                         stream.write_all(
-                        format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
-                            string.len(), f_type, string)
+                        format!("HTTP/1.1 200 OK\r\n{}Content-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
+                            if file_path.as_str() == "./web/index.html"{
+                            "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'\r\n"
+                            }else{""},string.len(), f_type, string)
                         .as_bytes())
                         .unwrap();
                     } else {
@@ -970,6 +974,49 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                 }
             }
         }
+        "PER" => {
+            match method_num{
+                0 => {
+                    let database = db.lock().await;
+                    let query = "SELECT * FROM Lessons";
+                    if let Ok(mut stmt) = database.prepare(&query){
+                        if let Ok(iter) = stmt.query_map([], |row| {
+                            Ok(Lesson{
+                                week_day: row.get(0).unwrap_or(0),
+                                class_id: row.get(1).unwrap_or(0),
+                                lesson_hour: row.get(2).unwrap_or(0),
+                                teacher_id: row.get(3).unwrap_or(0),
+                                subject_id: row.get(4).unwrap_or(0),
+                                classroom_id: row.get(5).unwrap_or(0)
+                            })
+                        })
+                        {
+                            let filtered_iter : Vec<Lesson> 
+                                = iter.filter(|s| s.is_ok())
+                                .map(|s| s.unwrap())
+                                .filter(|s| 
+                                s.class_id!=0&&s.lesson_hour!=0&&s.teacher_id!=0&&s.subject_id!=0
+                                &&s.classroom_id!=0&&s.week_day!=0)
+                                .collect();
+                            let mut sorted_map : BTreeMap<(u8, u8), (u16, u16, u16)> = BTreeMap::new();
+                            let teacher_id = 1;
+                            for lesson in filtered_iter{
+                                let (ci, wd, lh, si, cli, ti) = 
+                                (lesson.class_id, lesson.week_day, lesson.lesson_hour,
+                                 lesson.subject_id, lesson.classroom_id, lesson.teacher_id);
+                                if ti == teacher_id {
+                                    sorted_map.insert((wd, lh), (si, cli, ci));
+                                }
+                            }
+
+                            let x = Orb::Data(("Fizyka".to_string(), "Klasa 8".to_string(), "Sala Fizyczno-Chemiczna".to_string()));
+                            return dashboard("Mateus", x, Language::Polish, sorted_map, &database);
+                        }
+                    };
+                }
+                _ => {}
+            }
+        }
         _ => {
         }
     }
@@ -1020,7 +1067,7 @@ fn database_insert_error_msg(lang: &Language) -> String{
         "<error><p>Error occured while adding data to database, check if request is correct and if it is, then ask admin</p></error>".to_string()
     };
 }
-fn weekd_to_string(weekd: u8) -> String{
+pub fn weekd_to_string(weekd: u8) -> String{
     match weekd{
         1 => "Mon.".to_string(),
         2 => "Tue.".to_string(),
