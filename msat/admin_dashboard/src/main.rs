@@ -198,39 +198,6 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
             args.insert(key.to_string(), value.to_string());
         }
     }
-
-    if let Some(password) = args.get("password"){
-        if let Some(set_password) = shared_components::password::get_password().await{
-            if set_password != *password
-            {
-                if *lang == Language::Polish{
-                    return "<error>
-                    <p>Wprowadzone złe hasło</p></error>".to_string();
-                }
-                else{
-                    return "<error><p>Wrong password was entered</p>
-                    </error>".to_string();
-                }
-            }
-        }
-        else{
-            if *lang == Language::Polish{
-                return "<error><p>Nie udało się uzyskać hasła, spytaj administratora</p></error>".to_string();
-            }
-            else{
-                return "<error><p>Couldn't get password, ask admin</p></db_row></error>".to_string();
-            }
-        }
-    }
-    else{
-        if *lang == Language::Polish{
-            return "<error><p>Nie znaleziono hasła</p></error>".to_string();
-        }
-        else{
-            return "<error><p>Couldn't find password</p></error>".to_string();
-        }
-    }
-
     let (method, method_num) = match args.get("method"){
         Some(value) => {
             if let Some((method, method_num)) = value.split_once('+'){
@@ -269,6 +236,48 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
             }
         }
     };
+
+    if let Some(password) = args.get("password"){
+        if let Some(set_password) = shared_components::password::get_password().await{
+            if set_password != *password
+            {
+                if method == "PER" && method_num == 1{
+                    return web::login(*lang);
+                }
+                else{
+                    if *lang == Language::Polish{
+                        return "<error>
+                        <p>Wprowadzone złe hasło</p></error>".to_string();
+                    }
+                    else    {
+                    return "<error><p>Wrong password was entered</p>
+                        </error>".to_string();
+                    }
+                }
+            }
+            else{
+                if method == "PER" && method_num == 1 && set_password == *password{
+                    return "true".to_string();
+                }
+            }
+        }
+        else{
+            if *lang == Language::Polish{
+                return "<error><p>Nie udało się uzyskać hasła, spytaj administratora</p></error>".to_string();
+            }
+            else{
+                return "<error><p>Couldn't get password, ask admin</p></db_row></error>".to_string();
+            }
+        }
+    }
+    else{
+        if *lang == Language::Polish{
+            return "<error><p>Nie znaleziono hasła</p></error>".to_string();
+        }
+        else{
+            return "<error><p>Couldn't find password</p></error>".to_string();
+        }
+    }
 
     match method{
         "GET" => {
@@ -346,7 +355,7 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 to_return.push_str(&format!("<class id='{teacher}'><p>{} {}</p><w>\n", 
                                         first_name, last_name));
                                 for weekd in 1..=7u8{
-                                    to_return.push_str(&format!("<weekd id='w{weekd}'><p>{}</p>\n", weekd_to_string(weekd)));
+                                    to_return.push_str(&format!("<weekd id='w{weekd}'><p>{}</p>\n", weekd_to_string(&*lang, weekd)));
                                     for lesson_num in 1..=*llh{
                                         if let Some((si, cli, ci)) = sorted_map.get(&(teacher, weekd, lesson_num)){
                                             to_return.push_str(
@@ -423,7 +432,8 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 to_return.push_str(&format!("<class id='{class}'><p>{}</p><w>\n", 
                                         class_hashmap.get(&class).unwrap_or(&class.to_string())));
                                 for weekd in 1..=7u8{
-                                    to_return.push_str(&format!("   <weekd id='w{weekd}'><p>{}</p>\n", weekd_to_string(weekd)));
+                                    to_return.push_str(&format!("   <weekd id='w{weekd}'><p>{}</p>\n", 
+                                            weekd_to_string(&*lang, weekd)));
                                     for lesson_num in 1..=*llh{
                                         if let Some((si, cli, ti)) = sorted_map.get(&(class, weekd, lesson_num)){
                                             let (first_name, last_name) : (String, String) = match teacher_hashmap.get(ti){
@@ -1009,10 +1019,16 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 }
                             }
 
-                            let x = Orb::Data(("Fizyka".to_string(), "Klasa 8".to_string(), "Sala Fizyczno-Chemiczna".to_string()));
-                            return dashboard("Mateus", x, Language::Polish, sorted_map, &database);
+                            let x = Orb::Data(("Fizyka".to_string(), "Sala Fizyczno-Chemiczna".to_string(), "Klasa 8".to_string()));
+                            return dashboard("Mateus", Some((1, 1)), x, Language::Polish, sorted_map, &database);
                         }
                     };
+                }
+                1 => {
+                    return "true".to_string();
+                }
+                2 => {
+                    return web::post_login(&*lang);
                 }
                 _ => {}
             }
@@ -1067,15 +1083,15 @@ fn database_insert_error_msg(lang: &Language) -> String{
         "<error><p>Error occured while adding data to database, check if request is correct and if it is, then ask admin</p></error>".to_string()
     };
 }
-pub fn weekd_to_string(weekd: u8) -> String{
+pub fn weekd_to_string(lang: &Language, weekd: u8) -> String{
     match weekd{
-        1 => "Mon.".to_string(),
-        2 => "Tue.".to_string(),
-        3 => "Wed.".to_string(),
-        4 => "Thr.".to_string(),
-        5 => "Fri.".to_string(),
-        6 => "Sat.".to_string(),
-        7 => "Sun.".to_string(),
-        _ => "Unk.".to_string()
+        1 => lang.english_or("Monday"   ,"Poniedziałek" ),
+        2 => lang.english_or("Tuesday"  ,"Wtorek"       ),
+        3 => lang.english_or("Wednesday","Środa"        ),
+        4 => lang.english_or("Thursday" ,"Czwartek"     ),
+        5 => lang.english_or("Friday"   ,"Piątek"       ),
+        6 => lang.english_or("Saturday" ,"Sobota"       ),
+        7 => lang.english_or("Sunday"   ,"Niedziela"    ),
+        _ => lang.english_or("Unknown"  ,"Nieznany"),
     }
 }

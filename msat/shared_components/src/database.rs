@@ -374,3 +374,31 @@ pub fn get_classrooms(db: &MutexGuard<'_,SQLite>) -> HashMap<u16, String>{
                             }
 
 }
+
+pub fn get_lesson_hours(db: &MutexGuard<'_,SQLite>) -> HashMap<u8, (u16, u16)>{
+    if let Ok(mut stmt) = db.prepare("SELECT * FROM LessonHours"){
+        if let Ok(iter) = stmt.query_map([], |row|
+            {   
+                Ok(
+                    LessonHour{
+                        lesson_num: row.get(0).unwrap_or(0),
+                        start_time: row.get(1).unwrap_or(0),
+                        end_time  : row.get(2).unwrap_or(0)
+                    }
+                )
+            }
+        )
+        {
+            let mut filtered_iter : HashMap<u8, (u16, u16)> = HashMap::new();
+            for lessonh in iter{
+                if let Ok(lessonh) = lessonh{
+                    if lessonh.lesson_num != 0 && lessonh.start_time != 0 && lessonh.end_time != 0{
+                        filtered_iter.insert(lessonh.lesson_num,  (lessonh.start_time, lessonh.end_time));
+                    }
+                }
+            }
+            return filtered_iter;
+        }
+    }
+    return HashMap::new();
+}

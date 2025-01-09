@@ -4,6 +4,8 @@
 /// ===========================================
 use serde::{Serialize, Deserialize};
 use std::net::IpAddr;
+use std::collections::HashMap;
+use crate::utils::format_lessonh;
 
 #[derive(Clone,Debug,Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Request{
@@ -194,7 +196,6 @@ impl SendToClient for ConnectionError{
     }
 }
 
-use std::collections::HashMap;
 #[derive(Clone)]
 pub struct ParsedRequest{
     pub request: Request,
@@ -273,7 +274,7 @@ impl Language{
                 return english.to_string()
             }
             Self::Unspecified => {
-                "".to_string()
+                polish.to_string()
             }
         }
     }
@@ -282,4 +283,18 @@ impl Language{
 pub enum Orb<T, Y>{
     Data(T),
     Alt(Y)
+}
+
+#[allow(warnings)]
+pub trait msatToString{
+    fn msat_to_string(&self) -> String;
+}
+
+type Hours = (u16, u16);
+impl msatToString for Hours{
+    fn msat_to_string(&self) -> String {
+        let (start_time, end_time) = self;
+        let (stime_str , endt_str) = (format_lessonh(*start_time), format_lessonh(*end_time));
+        return format!("{} - {}", stime_str, endt_str);
+    }
 }

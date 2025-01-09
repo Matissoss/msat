@@ -45,6 +45,27 @@ pub fn format_mmdd(input: &str) -> Result<(u8, u8), ()>{
     };
     return Ok((month, day));
 }
+
+pub fn format_lessonh(hour: u16) -> String{
+    if hour < 10{
+        return format!("00:0{}", hour);
+    }
+    else if hour < 100{
+        return format!("00:{}", hour);
+    }
+    else if hour < 1000{
+        let hour_chars = hour.to_string().chars().collect::<Vec<char>>();
+        format!("0{}:{}{}", hour_chars[0], hour_chars[1], hour_chars[2])
+    }
+    else if hour < 10000{
+        let hour_chars = hour.to_string().chars().collect::<Vec<char>>();
+        format!("{}{}:{}{}", hour_chars[0], hour_chars[1], hour_chars[2], hour_chars[3])
+    }
+    else{
+        return format!("00:00");
+    }
+}
+
 pub fn format_time(time: u32) -> String{
     if time < 10{
         return format!("0{}", time);

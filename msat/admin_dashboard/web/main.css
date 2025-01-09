@@ -16,8 +16,12 @@ nav{
 	padding: 1vw;
 }
 
-h1, h2 {
+h1, h2, h3 {
 	text-align: center;
+}
+
+h3 {
+	font-size: 150%
 }
 
 lessons{
@@ -51,7 +55,8 @@ lesson{
 	justify-content: center;
 	width: 90%;
 	margin: auto;
-	border: solid white 0.125vw;
+	border: solid white 0.155vw;
+	border-radius: 0.5vw;
 }
 
 lesson *{
@@ -63,22 +68,65 @@ lesson strong{
 	border-bottom: solid white 0.125vw
 }
 
+italic{
+	font-style: italic;
+	text-decoration: underline;
+}
+
 lesson p{
 	font-style: normal;
 	font-weight: 500;
 	font-size: 100%;
 	border: none;
 }
+nav{
+	width: 96vw;
+}
 nav a{
 	margin: auto;
 	color: var(--secondary);
 	text-decoration: none;
-	font-size: 120%;
+	font-size: 110%;
 }
 nav a:hover{
 	color: blue;
 	text-decoration: underline;
 	text-decoration-thickness: .5vw;
+}
+
+.login{
+	display: flex;
+	flex-direction: column;
+	border: 0.25vw dashed white;
+	padding: 1vw;
+	width: 60vw;
+	height: 50vh;
+	margin: auto;
+	align-items:center;
+	justify-content: center;
+	justify-self: center;
+}
+.login input, .login button{
+	width: 60%;
+	padding: 0.3vw;
+	font-size: 100%;
+	border-color: white;
+	color: white;
+	background-color: black;
+}
+.login button{
+	width: 61.2%;
+}
+.login input::placeholder{
+	color: white;
+}
+.login h1{
+	margin-top:0;
+}
+
+.current_lesson{
+	background-color: white;
+	color: black;
 }
 
 @media only screen and (max-width: 700px){
