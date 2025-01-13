@@ -61,7 +61,7 @@ function refresh(hash){
 
 function dashboard(){
 	ROOT.innerHTML = "<h1>Loading...</h1>";
-	fetch(`/?method=PER+0&password=${get_cookie("password")}`)
+	fetch(`/?method=PER+0&password=${get_cookie("password")}&arg1=${get_cookie("teacher_id")}`)
 	.then(response => response.text())
 	.then(result => {
 		ROOT.innerHTML = result
@@ -84,7 +84,19 @@ function post_login(){
 }
 
 function admin_panel(){
-	ROOT.innerHTML = "Hello 2"
+	fetch (`/?method=PER+3&password=${get_cookie("password")}`)
+	.then(result => result.text())
+	.then(response => {
+		ROOT.innerHTML = response;
+		$("submit").addEventListener('click', () => {
+			let value = $("select").value;
+			fetch (`/?method=${value}&password=test`)
+			.then(result => result.text())
+			.then(response => {
+				$("DATABASE-CONTENT").innerHTML = response;
+			})
+		})
+	})
 }
 
 function check_password(){
@@ -95,6 +107,7 @@ function check_password(){
 			ROOT.innerHTML = response;
 			$("submit_but").addEventListener('click', () => {
 				set_cookie("password", $("password").value, 1);
+				set_cookie("teacher_id", $("id").value, 1);
 				post_login();
 			})
 		}

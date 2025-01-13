@@ -77,7 +77,6 @@ pub fn format_time(time: u32) -> String{
 
 use std::process::{Command, ExitStatus};
 
-use crate::cli;
 pub fn get_public_ip() -> Result<IpAddr, ()>{
     let curl_result = Command::new("curl")
         .arg("https://api.ipify.org/")
@@ -104,7 +103,7 @@ pub fn get_public_ip() -> Result<IpAddr, ()>{
         }
         Err(error) => 
         {
-            cli::print_error("Error occured while getting public IP", error);
+            crate::visual::error(Some(error), "Error occured while getting public IP");
             return Err(());
         }
     }

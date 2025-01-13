@@ -8,13 +8,18 @@
 // Global Imports
 use core::str;
 use std::{ 
-    collections::HashMap, io::{
+    io::{
         Read, Write
-    }, net::{
+    }, 
+    net::{
         TcpListener, TcpStream
-    }, sync::Arc
+    }, 
+    sync::Arc
 };
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{
+    Mutex, 
+    Semaphore
+};
 use rusqlite::Connection as SQLite;
 use chrono::{
     self, Datelike, Timelike
@@ -23,10 +28,10 @@ use colored::Colorize;
 // Local Imports
 
 use shared_components::{
-    cli::{
-        self, ERROR, ARGS
-    }, config as ConfigFile, database as Database, password, split_string_by, types::*,
-    CLEAR, LOCAL_IP, SQLITE_FLAGS, VERSION,
+    visual,
+    backend,
+    types::*,
+    consts::*,
     utils
 };
 use shared_components::utils::*;
@@ -34,12 +39,11 @@ use shared_components::utils::*;
 // Entry point
 #[tokio::main]
 async fn main() {
-    cli::main();
+    visual::main();
     if let Ok(_) = std::process::Command::new(CLEAR).status(){
-        cli::print_dashboard();
     };
     
-    let db = match Database::init(*SQLITE_FLAGS).await{
+    let db = match backend::init_db(){
         Ok(v)  => {
             Arc::new(Mutex::new(v))
         }
@@ -48,16 +52,10 @@ async fn main() {
             std::process::exit(-1);
         }
     };
-    if let Err(error) = db.lock().await.execute_batch("PRAGMA journal_mode = WAL"){
-        cli::critical_error("Error executing batch command", error);
-    };
-    if let Err(error) = db.lock().await.busy_timeout(std::time::Duration::from_secs(4)){
-        cli::critical_error("Error setting busy_timeout", error);
-    }
-    let shared_config = Arc::new(match ConfigFile::get().await{
-        Ok(v) => {v},
-        Err(_) => {
-            cli::print_errwithout("Error getting configuration"); 
+    let shared_config = Arc::new(match backend::get_config().await{
+        Some(v) => Some(v),
+        None => {
+            visual::info("Config was not found! Create configuration file!");
             None
         }
     });
@@ -81,18 +79,18 @@ async fn main() {
     };
     if let Ok(invite_code) = utils::encode_ip(public_ip, port){
         if ARGS.contains(&"--color".to_string()){
-            cli::print_info(&format!("This is your public ip: {}", public_ip.to_string().on_black().white().bold()));
-            cli::print_info(&format!("This Code should be entered by clients: {}", invite_code.yellow().on_black().bold()));
+            visual::info(&format!("This is your public ip: {}", public_ip.to_string().on_black().white().bold()));
+            visual::info(&format!("This Code should be entered by clients: {}", invite_code.yellow().on_black().bold()));
         }
         else{
-            cli::print_info(&format!("This is your public ip: {}", public_ip.to_string()));
-            cli::print_info(&format!("This Code should be entered by clients: {}", invite_code));
+            visual::info(&format!("This is your public ip: {}", public_ip.to_string()));
+            visual::info(&format!("This Code should be entered by clients: {}", invite_code));
         }
         if let Err(error) = tokio::fs::write("data/invite.code", invite_code).await{
-            cli::print_error("Error occured while saving to file 'data/invite.code'", error);
+            visual::error(Some(error), "Error occured while saving to file 'data/invite.code'");
         }
         else{
-            cli::print_success("Successfully saved to data/invite.code");
+            visual::success("Successfully saved to data/invite.code");
         }
     }
 
@@ -103,18 +101,22 @@ async fn main() {
             Err(e) => 
             {
                 if let Some(v) = ip_address {
-                    cli::critical_error(&format!("Error connecting to ip_address {}", v), e);
+                    visual::critical_error(Some(e), &format!("Error connecting to ip_address {}", v));
                 }
                 else{
-                    cli::critical_error("data/config.toml doesn't contain any IP Address, like: `127.0.0.1`;",e);
+                    visual::critical_error(Some(e), "data/config.toml doesn't contain any IP Address, like: `127.0.0.1`;");
                 }
             }
     };
     
 
-    cli::debug_log(&format!("Listening on {}:8888", ip_address.unwrap_or(*LOCAL_IP)));
+    visual::debug(&format!("Listening on {}:8888", ip_address.unwrap_or(*LOCAL_IP)));
+    
+    // Start of actual program
     start_listening(listener, db, limit, max_timeout).await;
-    cli::debug_log("Shutdown?");
+    
+
+    visual::debug("Shutdown?");
     std::process::exit(0);
 }
 
@@ -136,10 +138,10 @@ async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>, limit: A
                     tokio::spawn(
                         async move{
                             if let Err(error) = handle_connection(stream, shared_db).await{
-                                cli::print_error("Error occured while handling exception", error);
+                                visual::error(Some(error), "Error occured while handling exception");
                             }
                             else{
-                                cli::print_success(&format!("Successfully handled request from TCP Addr: {}:{}", ip_address, port))
+                                visual::success(&format!("Successfully handled request from TCP Addr: {}:{}", ip_address, port))
                             };
                         }
                     );
@@ -182,7 +184,7 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
         return Err(ConnectionError::WritingError);
     }
     else{
-        cli::print_success("Handled Request");
+        visual::success("Handled Request");
     }
     return Ok(());
 }
@@ -725,89 +727,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
             }
         }
-        Request::Other => {}
+        _ => {}
     }
     Ok("msat/418-I'm-teapot".to_string())
-}
-
-async fn parse_request(input: &str) -> Result<(Request, HashMap<String, String>, u8), ConnectionError> {
-    if input[0..4] != *"msat"{
-        return Err(ConnectionError::WrongHeader);
-    }
-    let (mut request_type,mut args, mut request_num) : (Request,HashMap<String, String>,u8) = 
-    (Request::Other,HashMap::new(),0);
-    let sliced_input = split_string_by(input, '&');
-    for word in sliced_input{
-        if word.starts_with("msat/"){
-            if let Some((_header, version)) = word.split_once('='){
-                if version != VERSION.to_string(){
-                    return Err(ConnectionError::WrongVersion)
-                }
-                else{
-                    continue;
-                }
-            }
-            else{
-                return Err(ConnectionError::NoVersion)
-            }
-        }
-        if let Some((key, value)) = word.split_once('='){
-            args.insert(key.to_string(), value.to_string());
-        }
-    }
-
-    if let Some(value1) = args.get("method"){
-        if let Some((method, method_num)) = value1.split_once('='){
-            if method.trim() == "GET"{
-                request_type = Request::GET;
-            }
-            else if method.trim() == "POST"{
-                request_type = Request::POST;
-            }
-            request_num = method_num.trim().parse().unwrap_or(0);
-        }
-    }
-
-    if let (Some(password), Some(server_password)) = (args.get("password"), password::get_password().await){
-        if password != &server_password{
-            return Err(ConnectionError::WrongPassword)
-        }
-    }
-    else{
-        return Err(ConnectionError::NoPassword);
-    }
-
-    if request_num == 0{
-        return Err(ConnectionError::RequestParseError);
-    }
-    Ok((request_type,args,request_num))
-}
-
-#[cfg(test)]
-mod tests{
-    use super::*;
-    #[tokio::test]
-    async fn parse_arg(){
-        //              Correct
-        let requests1 = "msat/10&method=GET+1&password=test&args=1,3,4,5";
-        //              Wrong Version
-        let requests2 = "msat/11&method=GET+1&password=test&args=1,3,4,5";
-        //              Wrong Request
-        let requests3 = "msat/10&method=GE+1&password=test&args=1,3,4,5";
-        //              No Request Number
-        let requests4 = "msat/10&method=GET+&password=test&args=1,3,4,5";
-        //              Wrong Request Number
-        let requests5 = "msat/10&method=GET+ab&password=test&args=1,3,4,5";
-        //              No password
-        let requests6 = "msat/10&method=GET+1&password=&args=1,3,4,5";
-        //              Wrong Header
-        let requests7 = "mast/10&method=GET+1&password=test&args=1,3,4,5";
-        println!("1. {:?}", parse_request(requests1).await);
-        println!("2. {:?}", parse_request(requests2).await);
-        println!("3. {:?}", parse_request(requests3).await);
-        println!("4. {:?}", parse_request(requests4).await);
-        println!("5. {:?}", parse_request(requests5).await);
-        println!("6. {:?}", parse_request(requests6).await);
-        println!("7. {:?}", parse_request(requests7).await);
-    }
 }

@@ -1,19 +1,12 @@
 /// ===========================================
 ///                 Types.rs
-///     Contains types used in msat 
+///     Contains types used in msat
 /// ===========================================
 use serde::{Serialize, Deserialize};
 use std::net::IpAddr;
 use std::collections::HashMap;
+use crate::backend::RequestType as Request;
 use crate::utils::format_lessonh;
-
-#[derive(Clone,Debug,Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Request{
-    GET,
-    POST,
-    #[default]
-    Other
-}
 impl ToString for Request{
     fn to_string(&self) -> String {
         match &self{
@@ -75,6 +68,7 @@ pub enum RequestError{
     ParseIntError(String)
 }
 
+#[allow(unused)]
 pub trait SendToClient{
     fn to_response(input: Self) -> String;
 }

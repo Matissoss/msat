@@ -3,9 +3,18 @@
 	--secondary: white;
 }
 
+@font-face{
+	src: url(Roboto-Regular.ttf);
+	font-family: std
+}
+
 body{
 	background-color: black;
 	color: white
+}
+
+body *{
+	font-family: std;
 }
 
 nav{
@@ -92,6 +101,19 @@ nav a:hover{
 	color: blue;
 	text-decoration: underline;
 	text-decoration-thickness: .5vw;
+}
+
+db_row{
+	display: flex;
+	flex-direction: row;
+	border: white 0.125vw double;
+	padding: 0.5vw;
+	font-size: 120%;
+}
+db_row p{
+	width: 25vw;
+	margin: auto;
+	text-align: center;
 }
 
 .login{
