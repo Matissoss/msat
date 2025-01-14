@@ -4,7 +4,6 @@
 /// ===========================================
 use serde::{Serialize, Deserialize};
 use std::net::IpAddr;
-use std::collections::HashMap;
 use crate::backend::RequestType as Request;
 use crate::utils::format_lessonh;
 impl ToString for Request{
@@ -187,24 +186,6 @@ impl SendToClient for ConnectionError{
                 "msat/400-Bad-Request&msg=Client+provided+wrong+header".to_string()
             }
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct ParsedRequest{
-    pub request: Request,
-    pub content: HashMap<String, String>,
-    pub request_number: u8
-}
-
-impl From<(Request, HashMap<String, String>, u8)> for ParsedRequest{
-    fn from(value: (Request, HashMap<String, String>, u8)) -> Self {
-        let (req, con, req_num) = value;
-        return ParsedRequest{
-            request: req,
-            content: con,
-            request_number: req_num
-        };
     }
 }
 

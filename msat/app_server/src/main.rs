@@ -28,11 +28,7 @@ use colored::Colorize;
 // Local Imports
 
 use shared_components::{
-    visual,
-    backend,
-    types::*,
-    consts::*,
-    utils
+    backend::{self, Request, RequestType, ParsedRequest}, consts::*, types::*, utils, visual
 };
 use shared_components::utils::*;
 
@@ -162,111 +158,42 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
     else{
         return Err(ConnectionError::CannotRead);
     };
-    let string = {
-        if let Ok(str) = String::from_utf8(data_sent[0..len].to_vec()){
-            str
+
+    if let Ok(request) = Request::from_str(&String::from_utf8_lossy(&data_sent[..len]).to_string()).parse(){
+        let response = match get_response(request, db).await{
+            Ok(v) => v,
+            Err(e) => RequestError::to_response(e)
+        };
+        if let Err(_) = stream.write_all(response.as_bytes()){
+            return Err(ConnectionError::WritingError);
         }
         else{
-            String::from_utf8_lossy(&data_sent[0..len]).to_string()
+            visual::success("Handled Request");
         }
-    };
-    let parsed_req = {
-        match parse_request(&string).await{
-            Ok(v) => ParsedRequest::from(v),
-            Err(e) => return Err(e)
-        }
-    };
-    let response = match get_response(parsed_req.clone(), db).await{
-        Ok(v) => v,
-        Err(e) => RequestError::to_response(e)
-    };
-    if let Err(_) = stream.write_all(response.as_bytes()){
-        return Err(ConnectionError::WritingError);
-    }
-    else{
-        visual::success("Handled Request");
     }
     return Ok(());
 }
 
 async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, RequestError>{
-    let args = &parsed_request.content;
+    let args = &parsed_request.args;
     let empty = &"".to_string();
-    match parsed_request.request
+    match parsed_request.req_type
     {
-        Request::GET => {
-            match parsed_request.request_number{
+        RequestType::GET => {
+            match parsed_request.req_numb{
                 0 => {
                     return Ok("msat/200-OK&get=Server-is-working!".to_string());
                 }
                 1 => 
                 {
                     // GET Lessons for this day 
-                    let teacher = if let Some(v) = args.get("arg1"){
+                    let teacher_id = if let Some(v) = args.get("arg1"){
                         v
                     }
                     else{
                         return Err(RequestError::LengthError);
                     };
-                    let date : u8 = chrono::Local::now().weekday() as u8 + 1u8;
-                    let database = db.lock().await;
-                    let mut prompt = match database.prepare("SELECT * FROM Lessons WHERE teacher_id = ?1 AND week_day = ?2;"){
-                        Ok(v) => v,
-                        Err(_) => {
-                            return Err(RequestError::DatabaseError);
-                        }
-                    };
-                    // class_id, classroom_id, subject_id, lesson_number
-                    let product_iter = match prompt.query_map([teacher, &date.to_string()], |row|{
-                        Ok((
-                            quick_match(row.get::<usize,u16>(1)), //class_id,
-                            quick_match(row.get::<usize,u16>(5)), // classroom_id,
-                            quick_match(row.get::<usize,u16>(4)), // subject_id,
-                            quick_match(row.get::<usize,u16>(2)) //lesson_hour
-                        ))
-                    }){
-                        Ok(v) => v,
-                        Err(_) => {
-                            return Err(RequestError::DatabaseError);
-                        }
-                    };
-                    let mut lesson_vec : Vec<(u16, u16, u16, u16)> = vec![];
-                    for result in product_iter
-                    {
-                        if let Ok(tuple) = result 
-                        {
-                            if let (Some(class_id), Some(classroom_id), Some(subject_id), Some(lesson_number)) = tuple 
-                            {
-                                lesson_vec.push((class_id, classroom_id, subject_id, lesson_number));
-                            }
-                        }
-                    }
 
-                    if lesson_vec.len() == 0{
-                        return Ok("msat/204-No-Content".to_string());
-                    }
-                    else{
-                        let (class_hashmap, classroom_hashmap, subject_hashmap) = 
-                            (
-                                Database::get_classes   (&database),
-                                Database::get_classrooms(&database),
-                                Database::get_subjects  (&database)
-                            );
-                        let mut final_response = "msat/200-OK/get=".to_string();
-                        for (class_id, classroom_id, subject_id, lesson_num) in lesson_vec{
-                            if !final_response.ends_with("="){
-                                final_response.push('|');
-                            }
-
-                            final_response.push_str(&format!("{}+{}+{}+{}", 
-                                    class_hashmap    .get(&class_id)    .unwrap_or(&class_id    .to_string()), 
-                                    classroom_hashmap.get(&classroom_id).unwrap_or(&classroom_id.to_string()), 
-                                    subject_hashmap  .get(&subject_id)  .unwrap_or(&subject_id  .to_string()), 
-                                    lesson_num
-                            ));
-                        }
-                        return Ok(final_response);
-                    }
                 }
                 2 => {
                     // GET Hours for this lesson (start time and end time)
@@ -342,6 +269,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     // If false then program returns 200 OK false 
                     // If true then program checks WHERE does the teacher have duty and returns
                     // true
+                    /*
                     let teacher_id = match args.get("arg1"){
                         Some(v) => {
                             if let Ok(v1) = v.parse(){
@@ -380,9 +308,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         }
                     }
                     return Err(RequestError::DatabaseError);
+                    */
                 }
                 5 => {
                     // GET current classroom && class (as String)
+                    /*
                     let teacher_id = if let Some(v) = args.get("arg1"){
                         if let Ok(v1) = v.parse::<u16>(){
                             v1
@@ -449,9 +379,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         }
                     }
                     return Ok("msat/204-No-Content".to_string())
+                    */
                 }
                 6 => {
                     // GET lesson hour 
+                    /*
                     match Database::get_lesson_hour(&db.lock().await){
                         Ok(v) => {
                             if v == 0{
@@ -461,9 +393,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         },
                         Err(_) => return Err(RequestError::DatabaseError)
                     };
+                    */
                 }
                 7 => {
                     // GET classroom by id
+                    /*
                     if let Some(v) = args.get("arg1"){
                         if let Ok(id) = v.parse(){
                             match Database::get_classroom(id, &db.lock().await){
@@ -472,9 +406,11 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             }
                         }
                     }
+                    */
                 }
                 8 => {
                     // GET class by id 
+                    /*
                     if let Some(v) = args.get("arg1"){
                         if let Ok(id) = v.parse(){
                             match Database::get_class(id, &db.lock().await){
@@ -483,8 +419,10 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             }
                         }
                     }
+                    */
                 }
                 9 => {
+                    /*
                     if let Some(v) = args.get("arg1"){
                         if let Ok(id) = v.parse(){
                             match Database::get_teacher(id, &db.lock().await){
@@ -493,8 +431,10 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             }
                         }
                     }
+                    */
                 }
                 10 => {
+                    /*
                     match Database::get_break_num(&db.lock().await){
                         Ok(v) => {
                             if v == 0 {
@@ -508,14 +448,15 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             return Err(RequestError::DatabaseError);
                         }
                     }
+                    */
                 }
                 _ => {
                     return Err(RequestError::UnknownRequestError);
                 }
             };
         }
-        Request::POST => {
-            match parsed_request.request_number {
+        RequestType::POST => {
+            match parsed_request.req_numb {
                 0 => {
                     return Ok("msat/200-OK&post=Server-is-working!".to_string());
                 }

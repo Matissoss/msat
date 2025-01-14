@@ -6,14 +6,14 @@
 
 // Global imports
 use std::{
-    collections::{BTreeMap, HashMap}, io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
+    collections::BTreeMap, io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
 };
 use tokio::sync::{Mutex, Semaphore};
-use rusqlite::{self, OpenFlags};
+use rusqlite;
 
 // Local Imports 
 use shared_components::{
-    database::*, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS, cli, config
+    backend::{self, Request, ParsedRequest}, consts::*, types::*, visual
 };
 use web::dashboard;
 mod web;
@@ -21,35 +21,26 @@ mod web;
 #[tokio::main]
 #[allow(warnings)]
 async fn main(){
-    cli::main();
+    visual::main();
     init_httpserver().await;
 }
 
 pub async fn init_httpserver() {
-    if let Err(_) = init(*SQLITE_FLAGS).await{
-        std::process::exit(-1);
-    };
     let database = Arc::new(Mutex::new(
-            match rusqlite::Connection::open_with_flags("data/database.db",
-                OpenFlags::SQLITE_OPEN_CREATE|OpenFlags::SQLITE_OPEN_FULL_MUTEX|OpenFlags::SQLITE_OPEN_READ_WRITE){
+            match backend::init_db(){
                 Ok(v) => v,
-                Err(_) => std::process::exit(-1)
+                Err(_) => visual::critical_error::<u8>(None, "Error occured while initializing database")
             }
     ));
 
-    let (ip, port, max_limit, max_timeout, lang) : (IpAddr, u16, u16, Arc<u64>, Arc<Language>) = match config::get().await{
-        Ok(c) => {
-            if let Some(config) = c{
-                (config.http_server.tcp_ip.unwrap_or(*LOCAL_IP), 
-                 config.http_server.http_port, config.http_server.max_connections,
-                 Arc::new(config.http_server.max_timeout_seconds.into()),
-                 Arc::new(config.language))
-            }
-            else{
-                (*LOCAL_IP, 8000, 100, Arc::new(10), Arc::new(Language::default()))
-            }
+    let (ip, port, max_limit, max_timeout, lang) : (IpAddr, u16, u16, Arc<u64>, Arc<Language>) = match backend::get_config().await{
+        Some(c) => {
+                (c.http_server.tcp_ip.unwrap_or(*LOCAL_IP), 
+                 c.http_server.http_port, c.http_server.max_connections,
+                 Arc::new(c.http_server.max_timeout_seconds.into()),
+                 Arc::new(c.language))
         }
-        Err(_) => {
+        None => {
             (*LOCAL_IP, 8000, 100, Arc::new(10), Arc::new(Language::default()))
         }
     };
@@ -59,10 +50,10 @@ pub async fn init_httpserver() {
         Ok(v) => v,
         Err(_) => std::process::exit(-1),
     };
-    cli::print_success("Initialized HTTP Server");
+    visual::success("Initialized HTTP Server");
     loop {
         for s in listener.incoming() {
-            cli::debug_log("Request Incoming");
+            visual::debug("Request Incoming");
             if let Ok(stream) = s{
                 let cloned_dbptr = Arc::clone(&database);
                 let cloned_permit = Arc::clone(&limit);
@@ -76,7 +67,7 @@ pub async fn init_httpserver() {
                 }
             }
             else if let Err(error) = s{
-                cli::print_error("TCPStream is Err", error);
+                visual::error(Some(error), "TCPStream is Err");
             }
         }
     }
@@ -90,7 +81,7 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
             for l in request.lines(){
                 if !l.is_empty()
                 {
-                    cli::debug_log(l);
+                    visual::debug(l);
                 }
             }
             let lines = request
@@ -125,8 +116,8 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type: application/xml\r\n\r\n{}",
                                         response.len(), response).as_bytes())
                                 {
-                                    Ok(_) =>  cli::print_info("Handled Request"),
-                                    Err(_) => cli::print_info("Couldn't Handle Request")
+                                    Ok(_) =>  visual::info("Handled Request"),
+                                    Err(_) => visual::info("Couldn't Handle Request")
                                 };
                             }
                         }
@@ -138,7 +129,7 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                         .filter(|s| !s.starts_with("Accept:"))
                         .collect();
                     for w in split_line {
-                        types = split_string_by(&w, ',');
+                        types = get_types(w);
                     }
                 }
             }
@@ -154,7 +145,7 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                 false
             };
             let f_type = &types[0];
-            cli::debug_log(&format!("file_path = {}", file_path));
+            visual::debug(&format!("file_path = {}", file_path));
             if binary == false {
                 if let Ok(buf) = tokio::fs::read(&file_path).await {
                     if let Ok(string) = String::from_utf8(buf.clone()) {
@@ -194,15 +185,13 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
     }
 }
 async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) -> String{
-    // request example: /?method=POST+1&version=10&args=20
+    // request example: /?msat/version&method=POST+1&version=10&args=20
     let request = String::from_iter(request.chars().collect::<Vec<char>>()[2..].iter());
-    let mut args : HashMap<String, String> = HashMap::new();
-    let req_split = split_string_by(&request, '&');
-    for s in req_split{
-        if let Some((key, value)) = s.split_once('='){
-            args.insert(key.to_string(), value.to_string());
-        }
+    let parsed_request : ParsedRequest = Request::from_str(&request).parse().unwrap_or_default();
+    if parsed_request == ParsedRequest::default(){
+        return "Error".to_string();
     }
+    let args = parsed_request.args;
     let (method, method_num) = match args.get("method"){
         Some(value) => {
             if let Some((method, method_num)) = value.split_once('+'){
@@ -243,7 +232,7 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
     };
 
     if let Some(password) = args.get("password"){
-        if let Some(set_password) = shared_components::password::get_password().await{
+        if let Some(set_password) = shared_components::backend::get_password().await{
             if set_password != *password
             {
                 if method == "PER" && method_num == 1{
@@ -950,10 +939,10 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
 
 fn not_found(tcp: &mut TcpStream) {
     if let Err(error) = tcp.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n<h1>404 - Not Found</h1>"){
-        cli::print_error("Error Occured while sending 404 to client", error);
+        visual::error(Some(error), "Error Occured while sending 404 to client");
     }
     else{
-        cli::debug_log("Returned 404 to Client");
+        visual::debug("Returned 404 to Client");
     }
 }
 
@@ -963,7 +952,9 @@ fn get_types(line: String) -> Vec<String> {
     let mut types: Vec<String> = vec![];
     for s in split_line {
         if !s.starts_with("Accept:") {
-            types = split_string_by(s, ',');
+            types = s.split(',')
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>();
         }
     }
     types

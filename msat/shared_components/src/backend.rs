@@ -1,3 +1,4 @@
+use chrono::Timelike;
 ///============================
 /// Contains core of msat's
 /// backend logic like parsing
@@ -10,16 +11,64 @@ use rusqlite::{
     OpenFlags  as Flags,
     Error      as SQLiteError
 };
-use tokio::fs;
+use tokio::{
+    fs,
+    sync::{
+        Mutex,
+        Semaphore
+    }
+};
 use toml::from_str;
 use std::{
-    net::TcpStream,
-    io::Read,
+    sync::{
+        LazyLock,
+        Arc
+    },
     collections::HashMap
 };
 // Local Imports 
 use crate::consts::VERSION;
 use crate::types::Configuration;
+// static/const declaration
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Timestamp{
+    hour: u8,
+    minute: u8,
+    secs: u8
+}
+impl Timestamp{
+    fn can_proceed(&self, timeout_secs: u32) -> bool{
+        let now : u32 = (self.hour as u32 * 60 * 60) + (self.minute as u32 * 60) + self.secs as u32;
+        return Timestamp::from(now + timeout_secs) < Timestamp::now()
+    }
+    fn now() -> Timestamp{
+        let now = &chrono::Local::now();
+        return Timestamp{
+            hour  : now.hour().try_into().unwrap_or(0),
+            minute: now.minute().try_into().unwrap_or(0),
+            secs  : now.second().try_into().unwrap_or(0)
+        }
+    }
+}
+impl From<u32> for Timestamp{
+    fn from(value: u32) -> Self {
+        let hour = (value / 3600) as u8;
+        let minute = ((value % 3600) / 60) as u8;
+        let second = (value % 60) as u8;
+        return Self{
+            hour,
+            minute,
+            secs: second
+        }
+    }
+}
+
+// statics
+pub static GLOBAL_STATIC_SEMAPHORE : LazyLock<Arc<Semaphore>> = LazyLock::new(|| {
+    Arc::new(Semaphore::new(0))
+});
+pub static TIMEOUT : u32 = 30;
+
 // Struct Initialization
 
 #[allow(unused)]
@@ -45,25 +94,11 @@ pub struct ParsedRequest{
 }
 
 impl Request{
-    fn from_tcp(request: &mut TcpStream) -> Result<Request, ()>{
-        let mut buf : Vec<u8> = Vec::new();
-        if let Ok(len) = request.read(&mut buf){
-            if len <= 1{
-                return Err(());
-            }
-            else{
-                return Ok(Request{request: String::from_utf8_lossy(&buf).to_string()});
-            }
-        }
-        else{
-            return Err(());
-        }
-    }
-    fn from_str(request: &str) -> Request{
+    pub fn from_str(request: &str) -> Request{
         return Request{request: request.to_string()}
     }
-    fn parse(&self) -> Result<ParsedRequest, ()>{
-        if self.request.starts_with(&format!("/msat/{}", VERSION)) == false || 
+    pub fn parse(&self) -> Result<ParsedRequest, ()>{
+        if self.request.starts_with(&format!("/?msat/{}", VERSION)) == false || 
            self.request.starts_with(&format!("msat/{}" , VERSION)) == false
         {
             return Err(());
@@ -200,7 +235,7 @@ pub fn init_db() -> Result<Database, SQLiteError>{
             subject_id    INTEGER NOT NULL,
             lesson_hour   INTEGER NOT NULL,
             semester      INTEGER NOT NULL,
-            academic_year TEXT    NOT NULL,
+            academic_year INTEGER NOT NULL,
             PRIMARY KEY (class_id, weekday, lesson_hour, semester, academic_year),
             FOREIGN KEY (class_id)      REFERENCES Classes    (class_id),
             FOREIGN KEY (classroom_id)  REFERENCES Classrooms (classroom_id),
@@ -249,4 +284,45 @@ pub fn init_db() -> Result<Database, SQLiteError>{
     db.busy_timeout(std::time::Duration::from_secs(4))?;
 
     return Ok(db);
+}
+
+
+/// Returns Err if coudln't write to file
+/// either if semaphor and timeout doesn't match 
+/// or if global timeout doesn't match 
+/// =======
+/// This is static data operation
+pub async fn make_lesson_table() -> Result<(), ()>{
+    if Timestamp::now().can_proceed(TIMEOUT){
+        if let Ok(perm) = tokio::time::timeout
+            (std::time::Duration::from_secs(10), GLOBAL_STATIC_SEMAPHORE.clone().acquire_owned()).await
+        {
+            drop(perm);
+            return Err(());
+        }
+    }
+    return Err(());
+}
+
+pub async fn get_lessons_by_teacher_id(db: &rusqlite::Connection) -> String {
+    let now = chrono::Local::now().to_rfc3339();
+    return "".to_string()
+}
+
+// Tests 
+
+#[cfg(test)]
+pub mod tests{
+    use super::*;
+    #[test]
+    fn timestamp(){
+        let timeout = 30;
+        let time = Timestamp{
+            hour  : 18,
+            minute: 30,
+            secs  : 10
+        };
+        println!("RES: {}", Timestamp::can_proceed(&time, timeout));
+        //assert_eq!(true, Timestamp::can_proceed(&time, timeout));
+    }
 }
