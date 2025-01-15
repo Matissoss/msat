@@ -273,3 +273,75 @@ impl msatToString for Hours{
         return format!("{} - {}", stime_str, endt_str);
     }
 }
+
+#[derive(Deserialize, Serialize, Default, Clone, Copy)]
+pub struct JoinedHour{
+    pub lesson_hour  : Option<u16>,
+    pub start_hour   : Option<u8>,
+    pub start_minute : Option<u8>,
+    pub end_hour     : Option<u8>,
+    pub end_minutes  : Option<u8>
+}
+
+#[derive(Deserialize, Serialize, Default)]
+pub struct JoinedLesson{
+    pub weekday       : Option<u8>,
+    pub teacher       : Option<String>,
+    pub class         : Option<String>,
+    pub classroom     : Option<String>,
+    pub subject       : Option<String>,
+    pub lessonh       : JoinedHour,
+    pub semester      : Option<String>,
+    pub academic_year : Option<String>
+}
+#[derive(Deserialize, Serialize, Default)]
+pub struct JoinedLessonRaw{
+    pub weekday       : Option<u8>,
+    pub teacher       : Option<u16>,
+    pub class         : Option<u16>,
+    pub classroom     : Option<u16>,
+    pub subject       : Option<u16>,
+    pub lessonh       : Option<u16>,
+    pub semester      : Option<u8>,
+    pub academic_year : Option<u8>
+}
+#[derive(Deserialize, Serialize, Default)]
+pub struct JoinedDuty{
+    pub weekday       : Option<u8>,
+    pub semester      : Option<u8>,
+    pub academic_year : Option<u8>,
+    pub teacher       : Option<String>,
+    pub place         : Option<String>,
+    pub break_num     : JoinedHour,
+}
+
+pub trait ResultToOption<T>{
+    fn conv(&self) -> Option<T>;
+}
+impl<T, E> ResultToOption<T> for Result<T, E>
+where T: Clone{
+    fn conv(&self) -> Option<T> {
+        match &self{
+            Ok(v) => Some(v.clone()),
+            Err(_) => None
+        }
+    }
+}
+pub trait MultiwordToSingleword{
+    fn to_single(&self, separator: char) -> String;
+}
+impl MultiwordToSingleword for String{
+    fn to_single(&self, separator: char) -> String {
+        let words = &self.split_whitespace().collect::<Vec<&str>>();
+        let mut to_return = "".to_string();
+        for word in words{
+            if to_return.as_str() == ""{
+                to_return.push_str(&format!("{}", word));
+            }
+            else{
+                to_return.push_str(&format!("{}{}", separator, word));
+            }
+        }
+        return to_return
+    }
+}

@@ -176,279 +176,78 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
 
 async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, RequestError>{
     let args = &parsed_request.args;
-    let empty = &"".to_string();
     match parsed_request.req_type
     {
         RequestType::GET => {
             match parsed_request.req_numb{
                 0 => {
-                    return Ok("msat/200-OK&get=Server-is-working!".to_string());
+                    return Ok("msat/200-OK&get=Server-is-working".to_string());
                 }
-                1 => 
-                {
-                    // GET Lessons for this day 
-                    let teacher_id = if let Some(v) = args.get("arg1"){
-                        v
-                    }
-                    else{
-                        return Err(RequestError::LengthError);
-                    };
-
-                }
-                2 => {
-                    // GET Hours for this lesson (start time and end time)
-                    let current_time_hhmm = format!("{}{}",
-                        format_time(chrono::Local::now().hour()), format_time(chrono::Local::now().minute()));
-                    let database1 = db.lock().await;
-                    let mut query = match database1.prepare("SELECT * FROM LessonHours 
-                            WHERE start_time < CAST(?1 AS INTEGER) AND 
-                            end_time > CAST(?2 AS INTEGER);")
-                    {
-                        Ok(v) => v,
-                        Err(_) => {
-                            return Err(RequestError::DatabaseError);
-                        } 
-                    };
-                    let stmt = { 
-                        if let Ok(v) = query.query_row([&current_time_hhmm, &current_time_hhmm],|row| 
-                        {
-                            Ok((
-                                quick_match(row.get::<usize, String>(1)),
-                                quick_match(row.get::<usize, String>(2)),
-                            ))
-                        })
-                        {
-                            v
-                        }
-                        else{
-                            return Err(RequestError::DatabaseError);
-                        }
-                    };
-                    let (f_end, f_start) = match stmt{
-                            (Some(start_time), Some(end_time)) => {
-                                (end_time, start_time)
-                            }
-                            (None, None)|_ => {
-                                return Err(RequestError::NoDataFoundError);
-                            }
-                    };
-                    if f_end.is_empty()&f_start.is_empty() == false{
-                        return Ok(format!("msat/200-OK&get={}+{}", f_start, f_end));
-                    }
-                    return Ok("msat/204-No-Content".to_string());
-                }
-                3 => {
-                    // GET next break start_time and end_time | break_num == lesson_num
-                    if let Some(break_num) = args.get("arg1"){
-                        let database = db.lock().await;
-                        let query = "SELECT * FROM BreakHours WHERE break_num = ?1";
-                        if let Ok(mut stmt) = database.prepare(&query){
-                            let iter = stmt.query_row([break_num], |row| {
-                                Ok((
-                                    row.get::<usize, u16>(1), //start_time
-                                    row.get::<usize, u16>(2)  //end_time
-                                ))
-                            });
-                            if let Ok(ok_iter) = iter{
-                                if let (Ok(start_time), Ok(end_time)) = ok_iter{
-                                    return Ok(format!("msat/200-OK/get={}+{}",start_time,end_time));
-                                }
-                                else{
-                            return Ok("msat/204-No-Content".to_string());
-                                }
-                            } 
-                        }
-                        else{
-                            return Err(RequestError::DatabaseError);
-                        };
-                    };
-                    return Ok("msat/204-No-Content".to_string());
-                }
-                4 => {
-                    // GET Request for getting if teacher will be on duty on following break:
-                    // If false then program returns 200 OK false 
-                    // If true then program checks WHERE does the teacher have duty and returns
-                    // true
-                    /*
-                    let teacher_id = match args.get("arg1"){
-                        Some(v) => {
-                            if let Ok(v1) = v.parse(){
-                                v1
-                            }
-                            else{
-                                return Err(RequestError::ParseIntError(args.get("arg1").unwrap().to_string()))
-                            }
-                        },
-                        None => return Err(RequestError::LengthError)
-                    };
-                    let database = db.lock().await;
-                    if let Ok(is_selected) = Database::get_teacher_duty_bool(chrono::Local::now().weekday() as u8, teacher_id, &database){
-                        if is_selected{
-                            if let Ok(mut stmt) = database.prepare("SELECT duty_place FROM Duties WHERE teacher_id = ?1 
-                            AND break_number = ?2 AND week_day = ?3")
-                            {
-                                let break_num = Database::get_break_num(&database);
-                                if let Ok(Ok(value)) = 
-                                stmt.query_row([teacher_id, break_num.unwrap_or(0).into(), chrono::Local::now().weekday() as u16], |row| 
-                                {
-                                    Ok(row.get::<usize, u16>(0))
-                                })
-                                {
-                                    if let Ok(mut stmt1) = database.prepare("SELECT duty_place_name FROM DutyPlaces WHERE 
-                                    dutyplace_id = ?1"){
-                                        if let Ok(Ok(duty_place_name)) = stmt1.query_row([value], |row| {Ok(row.get::<usize, String>(0))}){
-                                            return Ok(format!("msat/200-OK&get=true+{duty_place_name}"));
+                1 => {
+                    if let Some(teacher_id_in_str) = args.get("teacher_id"){
+                        if let Ok(teacher_id) = teacher_id_in_str.parse::<u16>(){
+                            if let Ok(lessons) = backend::get_lessons_by_teacher_id(teacher_id, &*db.lock().await){
+                                let mut to_return = "msat/200-OK".to_string();
+                                let mut largest = 0u16;
+                                for lesson in lessons{
+                                    if let Some(lessonh) = lesson.lessonh.lesson_hour{
+                                        if largest < lessonh{
+                                            largest = lessonh;
+                                        }
+                                        if let Some(class) = lesson.class{
+                                            to_return.push_str(&format!("&class{}={}", lessonh, class.to_single('_')));
+                                        }
+                                        if let Some(classroom) = lesson.classroom{
+                                            to_return.push_str(&format!("&classroom{}={}", lessonh, classroom.to_single('_')));
+                                        }
+                                        if let Some(subject) = lesson.subject{
+                                            to_return.push_str(&format!("&subject{}={}", lessonh, subject.to_single('_')))
                                         }
                                     }
                                 }
+                                to_return.push_str(&format!("&AMOUNT={}",largest));
+                                return Ok(to_return);
                             }
                         }
-                        else{
-                            return Ok("msat/200-OK&get=false".to_string());
-                        }
                     }
-                    return Err(RequestError::DatabaseError);
-                    */
+                    else{
+                        return Ok("msat/204-No-Content&get=None&AMOUNT=0".to_string());
+                    }
                 }
-                5 => {
-                    // GET current classroom && class (as String)
-                    /*
-                    let teacher_id = if let Some(v) = args.get("arg1"){
-                        if let Ok(v1) = v.parse::<u16>(){
-                            v1
-                        }
-                        else{
-                            return Err(RequestError::ParseIntError(args.get("arg1").unwrap().to_string()));
-                        }
-                    }else{
-                        return Err(RequestError::LengthError);
-                    };
-                    let database = db.lock().await;
-                    let lesson_hour = match Database::get_lesson_hour(&database){
-                        Ok(v) => {
-                            if v == 0{
-                                match Database::get_break_num(&database){
-                                    Ok(v1) => v1,
-                                    _ => {
-                                        return Ok("msat/204-No-Content&get=no+num".to_string());
+                2 => {
+                    if let Some(teacher_id_in_str) = args.get("teacher_id"){
+                        if let Ok(teacher_id) = teacher_id_in_str.parse::<u16>(){
+                            let mut to_return = "msat/200-OK".to_string();
+                            let mut amount = 0u16;
+                            match backend::get_duties_for_teacher(teacher_id, &*db.lock().await){
+                                Ok(vector) => {
+                                    for duty in vector{
+                                        if let Some(lessonh) = duty.break_num.lesson_hour{
+                                            if amount < lessonh{
+                                                amount = lessonh;
+                                            }
+                                            if let Some(place) = duty.place{
+                                                to_return.push_str(&format!("&place{}={}", lessonh,  place.to_single('_')));
+                                            }
+                                            if let (Some(hour), Some(minute)) = (duty.break_num.start_hour, duty.break_num.start_minute){
+                                                to_return.push_str(&format!("&start{}={}:{}",lessonh,hour,minute));
+                                            }
+                                            if let (Some(hour), Some(minute)) = (duty.break_num.end_hour, duty.break_num.end_minutes){
+                                                to_return.push_str(&format!("&end{}={}:{}", lessonh, hour, minute));
+                                            }
+                                        }
+                                    }
+                                    to_return.push_str(&format!("&AMOUNT={}", amount));
+                                    return Ok(to_return);
+                                }
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return Ok("msat/200-OK&get=None&AMOUNT=0".to_string());
                                     }
                                 }
                             }
-                            else{
-                                v
-                            }
-                        },
-                        Err(_) => return Err(RequestError::DatabaseError)
-                    };
-                    let query ="SELECT * FROM Lessons 
-                        WHERE week_day = ?1 AND lesson_hour = ?2 AND teacher_id = ?3;";
-                    let database = db.lock().await;
-                    let mut stmt = match database.prepare(&query){
-                        Ok(v) => v,
-                        Err(_) => return Err(RequestError::DatabaseError)
-                    };
-                    let iter = match stmt.query_map([(chrono::Local::now().weekday() as u8 + 1).into(), lesson_hour.into(), teacher_id], |row| {
-                        Ok((
-                                quick_match(row.get::<usize, u16>(5)),
-                                quick_match(row.get::<usize, u16>(1))
-                        ))
-                    })
-                    {
-                        Ok(v) => v,
-                        Err(_) => return Err(RequestError::DatabaseError)
-                    };
-                    for element in iter{
-                        match element{
-                            Ok((classroom_id, class_id)) => {
-                                if classroom_id.is_some()&class_id.is_some() == true{
-                                    let (u_classroom, u_class) = (classroom_id.unwrap(), class_id.unwrap());
-                                    let (classroom, class) = (
-                                        Database::get_classroom(u_classroom, &database),
-                                        Database::get_class(u_class, &database)
-                                    );
-                                    return Ok(format!("msat/200-OK&get={}+{}", 
-                                            class    .unwrap_or(u_class    .to_string()), 
-                                            classroom.unwrap_or(u_classroom.to_string())
-                                    ));
-                                }
-                                else{
-                                    return Err(RequestError::NoDataFoundError);
-                                }
-                            }
-                            Err(_) => return Err(RequestError::DatabaseError)
                         }
                     }
-                    return Ok("msat/204-No-Content".to_string())
-                    */
-                }
-                6 => {
-                    // GET lesson hour 
-                    /*
-                    match Database::get_lesson_hour(&db.lock().await){
-                        Ok(v) => {
-                            if v == 0{
-                                return Ok("msat/204-No-Content".to_string());
-                            }
-                            return Ok(format!("msat/200-OK&get={}", v))
-                        },
-                        Err(_) => return Err(RequestError::DatabaseError)
-                    };
-                    */
-                }
-                7 => {
-                    // GET classroom by id
-                    /*
-                    if let Some(v) = args.get("arg1"){
-                        if let Ok(id) = v.parse(){
-                            match Database::get_classroom(id, &db.lock().await){
-                                Ok(v) => return Ok(format!("msat/200-OK&get={}", v)),
-                                Err(_) => return Err(RequestError::DatabaseError)
-                            }
-                        }
-                    }
-                    */
-                }
-                8 => {
-                    // GET class by id 
-                    /*
-                    if let Some(v) = args.get("arg1"){
-                        if let Ok(id) = v.parse(){
-                            match Database::get_class(id, &db.lock().await){
-                                Ok(v) => return Ok(format!("msat/200-OK&get={}", v)),
-                                Err(_) => return Err(RequestError::DatabaseError)
-                            }
-                        }
-                    }
-                    */
-                }
-                9 => {
-                    /*
-                    if let Some(v) = args.get("arg1"){
-                        if let Ok(id) = v.parse(){
-                            match Database::get_teacher(id, &db.lock().await){
-                                Ok(v) => return Ok(format!("msat/200-OK&get={}", v)),
-                                Err(_) => return Err(RequestError::DatabaseError)
-                            }
-                        }
-                    }
-                    */
-                }
-                10 => {
-                    /*
-                    match Database::get_break_num(&db.lock().await){
-                        Ok(v) => {
-                            if v == 0 {
-                                return Ok("msat/204-No-Content&get=Not-a-Break".to_string());
-                            }
-                            else{
-                                return Ok(format!("msat/200-OK&get={v}"));
-                            }
-                        }
-                        Err(_) => {
-                            return Err(RequestError::DatabaseError);
-                        }
-                    }
-                    */
                 }
                 _ => {
                     return Err(RequestError::UnknownRequestError);
@@ -459,209 +258,6 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
             match parsed_request.req_numb {
                 0 => {
                     return Ok("msat/200-OK&post=Server-is-working!".to_string());
-                }
-                1 => {
-                    // POST Lesson - contains class, classroom, subject, teacher, lesson number
-                    let (class_id, classroom_id, subject_id, teacher_id, lesson_number, week_day) :
-                        (Option<u16>, Option<u16>, Option<u16>, Option<u16>, Option<u16>, Option<u16>)= 
-                    (
-                        quick_match(args.get("arg1").unwrap_or(&"".to_string()).parse::<u16>()), 
-                        quick_match(args.get("arg2").unwrap_or(&"".to_string()).parse::<u16>()), 
-                        quick_match(args.get("arg3").unwrap_or(&"".to_string()).parse::<u16>()), 
-                        quick_match(args.get("arg4").unwrap_or(&"".to_string()).parse::<u16>()), 
-                        quick_match(args.get("arg5").unwrap_or(&"".to_string()).parse::<u16>()), 
-                        quick_match(args.get("arg6").unwrap_or(&"".to_string()).parse::<u16>()), 
-                    );
-                    if class_id.is_some()&&classroom_id.is_some()&&subject_id.is_some()&&teacher_id.is_some()
-                        &&lesson_number.is_some()&&week_day.is_some()
-                    {
-                        let (u_class, u_classroom, u_subject, u_teacher, u_lesson, u_weekday) = 
-                            (class_id.unwrap(), classroom_id.unwrap(), subject_id.unwrap(), 
-                             teacher_id.unwrap(), lesson_number.unwrap(), week_day.unwrap());
-                        let database = db.lock().await;
-                        match database.execute("INSERT INTO Lessons 
-                            (week_day, class_id, classroom_id, subject_id, teacher_id, lesson_hour) 
-                            VALUES (?1,?2,?3,?4,?5,?6)
-                            ON CONFLICT (class_id, lesson_hour, week_day) 
-                            DO UPDATE SET classroom_id = excluded.classroom_id, subject_id = excluded.subject_id,
-                            teacher_id = excluded.teacher_id;", 
-                            [u_weekday, u_class, u_classroom, u_subject, u_teacher, u_lesson])
-                        {
-                            Ok(_) => {
-                                return Ok("msat/201-Created".to_string())
-                            }
-                            Err(_) => {
-                                return Err(RequestError::DatabaseError);
-                            }
-                        };
-                    }
-                    else{
-                        return Err(RequestError::LengthError)
-                    }
-                }
-                2 => {
-                    // POST Teacher - contains ID and full name
-                    if let (Some(id), Some(name), Some(last_name)) = (args.get("arg1"), args.get("arg2"), args.get("arg3")){
-                    let database = db.lock().await;
-                        match database.execute("INSERT INTO Teachers (teacher_id, first_name, last_name) VALUES (?1, ?2, ?3)
-                            ON CONFLICT (teacher_id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name;", 
-                            [id.to_string().as_str(), name, last_name]){
-                            Ok(_) => {},
-                            Err(_) => return Err(RequestError::DatabaseError)
-                        };
-                        return Ok("msat/201-Created".to_string());
-                    }
-                }
-                3 => {
-                    // POST Hours - contains start hour, lesson number and end number
-                    let lesson_num : u8 = match args.get("arg1").unwrap_or(&"".to_string()).parse::<u8>(){
-                        Ok(v) => v,
-                        Err(_) => {
-                            return Err(RequestError::LengthError);
-                        }
-                    };
-                    let (s_hour, s_minute) = match format_mmdd(args.get("arg2").unwrap_or(&"".to_string())){
-                        Ok(v) => v,
-                        Err(_) => {
-                            return Err(RequestError::LengthError);
-                        }
-                    };
-                    let (e_hour, e_minute) = match format_mmdd(args.get("arg3").unwrap_or(&"".to_string())){
-                        Ok(v) => v,
-                        Err(_) => {
-                            return Err(RequestError::LengthError);
-                        }
-                    };
-                        let database = db.lock().await;
-                        match database.execute("INSERT INTO LessonHours (
-                        lesson_num,start_time, end_time) 
-                            VALUES (?1,?2,?3)
-                            ON CONFLICT(lesson_num) DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time;", 
-                            [lesson_num.to_string(), format_two_digit_time(s_hour, s_minute), 
-                            format_two_digit_time(e_hour, e_minute)])
-                        {
-                            Ok(_) => {}
-                            Err(_) => {
-                                return Err(RequestError::DatabaseError);
-                            }
-                        };
-                    return Ok("msat/201-Created".to_string());
-                }
-                4 => {
-                    // POST Subjects - contains id and name
-                    let id = match args.get("arg1").unwrap_or(&"".to_string()).parse::<u8>(){
-                        Ok(v) => v,
-                        Err(_) => return Err(RequestError::LengthError)
-                    };
-                    let name;
-                    match args.get("arg2").unwrap_or(&"".to_string()).as_str(){
-                        "" => return Err(RequestError::UnknownRequestError),
-                        _ => {name = args.get("arg2").unwrap()}
-                    };
-                    let database = db.lock().await;
-                    match database.execute(&"INSERT INTO Subjects (subject_id, subject_name) VALUES (?1, ?2)
-                        ON CONFLICT (subject_id) DO UPDATE SET subject_name = excluded.subject_name", &[id.to_string().as_str(), name]){
-                        Ok(_) => {},
-                        Err(_) => return Err(RequestError::UnknownRequestError)
-                    };
-                    return Ok("msat/201-Created".to_string());
-                }
-                5 => {
-                    // POST Classrooms - contains id and name
-                    let id = match args.get("arg1").unwrap_or(&"".to_string()).parse::<u8>(){
-                        Ok(v) => v,
-                        Err(_) => return Err(RequestError::LengthError)
-                    };
-                    let name;
-                    match args.get("arg2").unwrap_or(&"".to_string()).as_str(){
-                        "" => return Err(RequestError::LengthError),
-                        _ => {name = args.get("arg2").unwrap_or(empty).as_str()}
-                    };
-                    let database = db.lock().await;
-                    match database.execute("INSERT INTO Classrooms (classroom_id, classroom_name) VALUES (?1, ?2)
-                        ON CONFLICT (classroom_id) DO UPDATE SET classroom_name = excluded.classroom_name", &[id.to_string().as_str(), name]){
-                        Ok(_) => {},
-                        Err(_) => return Err(RequestError::DatabaseError)
-                    };
-                    return Ok("msat/201-Created".to_string());
-                }
-                6 => {
-                    // POST Duties - contains teacher id, classroom_id, day (1, 7), and break number 
-                    let teacher_id = match args.get("arg1").unwrap_or(&"".to_string()).parse::<u8>(){
-                        Ok(v) => v,
-                        Err(_) => return Err(RequestError::LengthError)
-                    };
-                    let weekday = match args.get("arg2").unwrap_or(&"".to_string()).parse::<u8>(){
-                        Ok(v) => {
-                            if v <= 7 && v > 0{
-                                v
-                            }
-                            else{
-                                return Err(RequestError::LengthError);
-                            }
-                        }
-                        Err(_) => return Err(RequestError::LengthError)
-                    };
-                    let lesson_number = match args.get("arg3").unwrap_or(&"".to_string()).parse::<u8>(){
-                        Ok(v) => v,
-                        Err(_) => return Err(RequestError::LengthError)
-                    };
-                    let break_place = match args.get("arg4").unwrap_or(&"".to_string()).as_str(){
-                        ""  => {
-                            return Err(RequestError::LengthError);
-                        },
-                        _ => {
-                            args.get("arg4").unwrap_or(empty)
-                        }
-                    };
-                    let database = db.lock().await;
-                    match database.execute("INSERT INTO Duties (break_num, teacher_id, duty_place, week_day,) 
-                    VALUES (?1, ?2, ?3, ?4)
-                        ON CONFLICT (lesson_hour, teacher_id, week_day) DO UPDATE SET classroom_id = excluded.classroom_id", 
-                        &[lesson_number.to_string().as_str(), teacher_id.to_string().as_str(), 
-                        break_place.to_string().as_str(), weekday.to_string().as_str()]){
-                        Ok(_) => return Ok("msat/201-Created".to_string()),
-                        Err(_) => {
-                            return Err(RequestError::DatabaseError)
-                        }
-                    }
-                }
-                7 => {
-                    // POST Classes - contains class number (UNIQUE!) and name
-                    let id = match args.get("arg1").unwrap_or(&"".to_string()).parse::<u8>(){
-                        Ok(v) => v,
-                        Err(_) => return Err(RequestError::LengthError)
-                    };
-                    let name;
-                    match args.get("arg2").unwrap_or(&"".to_string()).as_str(){
-                        "" => return Err(RequestError::UnknownRequestError),
-                        _ => {name = args.get("arg2").unwrap_or(empty).as_str()}
-                    };
-                    let database = db.lock().await;
-                    match database.execute("INSERT INTO Classes (class_id, class_name) VALUES (?1, ?2)
-                        ON CONFLICT (class_id) DO UPDATE SET class_name = excluded.class_name", [id.to_string().as_str(), name]){
-                        Ok(_) => {return Ok("msat/201-Created".to_string())},
-                        Err(_) =>{
-                            return Err(RequestError::DatabaseError)
-                        }
-                    }
-                }
-                8 => {
-                    // POST BreakHours - break_num, start_time, end_time
-                    if let (Ok(break_num), Ok(start_time), Ok(end_time)) = 
-                    (str::parse::<u8>(&args.get("arg1").unwrap_or(&"".to_string())), 
-                     str::parse::<u16>(&args.get("arg2").unwrap_or(&"".to_string())), 
-                     str::parse::<u16>(&args.get("arg3").unwrap_or(&"".to_string()))){
-                        let query = "INSERT INTO BreakHours (break_num, start_time, end_time) 
-                        VALUES (?1, ?2, ?3) ON CONFLICT (break_num) DO UPDATE SET 
-                        start_time = excluded.start_time, end_time = excluded.end_time";
-                        if let Err(_) = db.lock().await.execute(&query, [break_num.into(), start_time, end_time]){
-                            return Err(RequestError::DatabaseError);
-                        }
-                        else{
-                            return Ok("msat/201-Created".to_string());
-                        }
-                    }
                 }
                 _ => {
                     return Err(RequestError::UnknownRequestError);
