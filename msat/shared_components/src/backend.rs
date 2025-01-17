@@ -17,7 +17,7 @@ use tokio::{
         Semaphore
     }
 };
-use toml::from_str;
+use toml;
 use std::{
     collections::HashMap, fs::File, sync::{
         Arc, LazyLock
@@ -148,9 +148,9 @@ pub async fn get_config() -> Option<Configuration>{
 }
 
 pub async fn get_password() -> Option<String>{
-    return match fs::read_to_string("data/config.toml").await{
+    return match fs::read_to_string("config.toml").await{
         Ok(v) => {
-            match from_str::<Configuration>(&v){
+            match toml::from_str::<Configuration>(&v){
                 Ok(conf) => {
                     if conf.password == ""{
                         None
@@ -282,7 +282,7 @@ pub fn init_db() -> Result<Database, SQLiteError>{
         );
         "
         ,[])?;
-db.execute_batch("PRAGMA journal_mode = WAL")?;
+    db.execute_batch("PRAGMA journal_mode = WAL")?;
     db.busy_timeout(std::time::Duration::from_secs(4))?;
 
     return Ok(db);
@@ -324,7 +324,7 @@ pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> R
                                     to_return.push(ok_raw_lesson);
                                 }
                             }
-                            if let Ok(output_file) = File::open("static_data/LESSON_TABLE.raw.static.cbor"){
+                            if let Ok(output_file) = File::open("data/LESSON_TABLE.raw.static.cbor"){
                                 match serde_cbor::to_writer(output_file, &to_return){
                                     Ok(_) => {
                                         visual::info("Saved STATIC Lesson Table");
@@ -352,7 +352,7 @@ pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> R
 }
 /// STATIC
 pub fn static_old_table() -> Result<Vec<JoinedLessonRaw>, ()>{
-    if let Ok(file_content) = std::fs::File::open("static_data/LESSON_TABLE.raw.static.cbor"){
+    if let Ok(file_content) = std::fs::File::open("data/LESSON_TABLE.raw.static.cbor"){
         match serde_cbor::from_reader::<Vec<JoinedLessonRaw>, File>(file_content)
         {
             Ok(v) => return Ok(v),
@@ -661,8 +661,20 @@ pub fn get_duties_for_teacher(teacher_id: u16, db: &rusqlite::Connection) -> Res
 pub enum MainpulationType{
     Delete(Delete),
     Insert(POST),
-    Update(POST),
-    Create(POST)
+    Get   (GET)
+}
+pub enum GET{
+    Lesson    {class: u16, lesson_hour: u8, weekd: u8, semester: u8, academic_year: u8},
+    Year      {year  : u8},
+    Semester  {semester   : u8},
+    Subject   {subject_id : u16},
+    Class     {class_id   : u16},
+    Classroom {classroom_id : u16},
+    Teacher   {teacher_id : u16},
+    Corridor  {corridor_id: u16},
+    LessonHour{lesson_hour: u8},
+    Break     {break_hour : u8},
+    Duty      {weekd: u8, break_num: u8, teacher_id: u16, semester: u8, academic_year: u8}
 }
 pub enum Delete{
     Lesson     {class: u16, weekd: u8, lessonh: u16, semester: u8, academic_year: u8},
@@ -673,7 +685,8 @@ pub enum Delete{
     Classroom  {classroom: u16},
     Teacher    {teacher: u16},
     LessonHour {lessonh: u16},
-    Corridor   {corridor: u16}
+    Corridor   {corridor: u16},
+    Duty       {weekday: u8, break_num: u8, teacher_id: u16, semester: u8, academic_year: u8}
 }
 
 pub enum POST{
@@ -686,11 +699,11 @@ pub enum POST{
     Semester    (Option<(u8, String, String, String)>),
     Year        (Option<(u8, String, String, String)>),
     Corridors   (Option<(u16, String)>),
-    Break       (Option<(u8, u8, u8, u8)>),
+    Break       (Option<(u8, u8, u8, u8, u8)>),
     Duty        (Option<(u8, u8, u16, u16, u8, u8)>)
 }
 
-pub async fn manipulate(manipulation: MainpulationType, db: &rusqlite::Connection) -> Result<String, rusqlite::Error>{
+pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connection) -> Result<String, rusqlite::Error>{
     match manipulation{
         MainpulationType::Delete(delete) =>{
             match delete{
@@ -734,18 +747,270 @@ pub async fn manipulate(manipulation: MainpulationType, db: &rusqlite::Connectio
                     db.execute("DELETE FROM LessonHours WHERE lesson_hour = ?1", [lessonh])?;
                     return Ok("msat/201-Deleted".to_string());
                 }
+                Delete::Duty { weekday, break_num, teacher_id, semester, academic_year } => {
+                    db.execute("DELETE FROM Duties 
+                        WHERE weekday     = ?1 
+                        AND break_num     = ?2 
+                        AND teacher_id    = ?3 
+                        AND semester      = ?4
+                        AND academic_year = ?5", [weekday.into(), break_num.into(), teacher_id, semester.into(), academic_year.into()])?;
+                    return Ok("msat/201-Deleted".to_string());
+                }
             }
         }
         MainpulationType::Insert(post) => {
-            todo!();
+            match post{
+                POST::Year(Some((academic_year, year_name, start_date, end_date))) => {
+                    db.execute("INSERT INTO Years (academic_year, year_name, start_date, end_date) 
+                        VALUES (?1, ?2, ?3, ?4)
+                        ON CONFLICT (academic_year) DO UPDATE SET 
+                        year_name = excluded.year, start_date = excluded.start_date, end_date = excluded.end_date"
+                        ,[academic_year.to_string(), year_name, start_date, end_date]
+                    )?;
+                }
+                POST::Duty(Some((weekd, break_num, teacher_id, place_id, semester, academic_year))) => {
+                    db.execute("INSERT INTO Duties (weekday, break_num, teacher_id, place_id, semester, academic_year)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                    ON CONFLICT (weekday, break_num, teacher_id, semester, academic_year) 
+                    DO UPDATE SET 
+                    place_id = excluded.place_id"
+                        ,[weekd.into(), break_num.into(), teacher_id, place_id.into(), semester.into(), academic_year.into()]
+                    )?;
+                }
+                POST::Class(Some((class_id, class_name))) => {
+                    db.execute("INSERT INTO Classes (class_id, class_name) 
+                        VALUES (?1, ?2)
+                        ON CONFLICT (class_id)
+                        DO UPDATE SET class_name = excluded.class_name"
+                        , [class_id.to_string(), class_name])?;
+                }
+                POST::Break(Some((break_num, start_hour, start_minute, end_hour, end_minute))) => {
+                    db.execute("INSERT INTO Breaks (break_num, start_hour, start_minutes, end_hour, end_minutes) 
+                        VALUES (?1, ?2, ?3, ?4)
+                        ON CONFLICT (break_num)
+                        DO UPDATE SET start_hour = excluded.start_hour, start_minutes = excluded.start_minutes,
+                        end_hour = excluded.end_hour, end_minutes = excluded.end_minutes"
+                        , [break_num, start_hour, start_minute, end_hour, end_minute])?;
+                }
+                POST::Lesson(Some((weekd, class_id, classroom_id, teacher_id, subject_id, lessonh, semester, academic_year))) => {
+                    db.execute(
+                    "INSERT INTO Lessons (weekday, class_id, classroom_id, teacher_id, subject_id, lesson_hour, semester, academic_year)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                    ON CONFLICT (weekday, class_id, lesson_hour, semester, academic_year)
+                    DO UPDATE SET 
+                    classroom_id = excluded.classroom_id, 
+                    teacher_id = excluded.teacher_id, 
+                    subject_id = excluded.subject_id
+                    ", 
+                    [weekd.into(), class_id, classroom_id, teacher_id, subject_id, lessonh, semester.into(), academic_year.into()])?;
+                }
+                POST::Teacher(Some((teacher_id, teacher_name))) => {
+                    db.execute("INSERT INTO Teachers (teacher_id, teacher_name) 
+                        VALUES (?1, ?2)
+                        ON CONFLICT (teacher_id)
+                        DO UPDATE SET teacher_name = excluded.teacher_name"
+                        , [teacher_id.to_string(), teacher_name])?;
+                }
+                POST::Subject(Some((subject_id, subject_name))) => {
+                    db.execute("INSERT INTO Subjects (subject_id, subject_name) 
+                        VALUES (?1, ?2)
+                        ON CONFLICT (subject_id)
+                        DO UPDATE SET subject_name = excluded.subject_name"
+                        , [subject_id.to_string(), subject_name])?;
+                }
+                POST::Semester(Some((semester, semester_name, start_date, end_date))) => {
+                    db.execute("INSERT INTO Semesters (semester, semester_name, start_date, end_date)
+                    VALUES (?1, ?2, ?3, ?4)
+                    ON CONFLICT (semester)
+                    DO UPDATE SET 
+                    semester_name = excluded.semester_name, 
+                    start_date = excluded.start_date, 
+                    end_date = excluded.end_date"
+                        , [semester.to_string(), semester_name, start_date, end_date])?;
+                }
+                POST::Classroom(Some((classroom_id, classroom_name))) => {
+                    db.execute("INSERT INTO Classrooms (classroom_id, classroom_name) 
+                        VALUES (?1, ?2)
+                        ON CONFLICT (classroom_id)
+                        DO UPDATE SET classroom_name = excluded.classroom_name"
+                        , [classroom_id.to_string(), classroom_name])?;
+                }
+                POST::Corridors(Some((corridor_id, corridor_name))) => {
+                    db.execute("INSERT INTO Corridors (corridor, corridor_name) 
+                        VALUES (?1, ?2)
+                        ON CONFLICT (corridor)
+                        DO UPDATE SET corridor_name = excluded.corridor_name"
+                        , [corridor_id.to_string(), corridor_name])?;
+                }
+                POST::LessonHours(Some((lesson_num, start_hour, start_minute, end_hour, end_minute))) => {
+                    db.execute("INSERT INTO LessonHours (lesson_hour, start_hour, start_minutes, end_hour, end_minutes)
+                    VALUES (?1, ?2, ?3, ?4, ?5)
+                    ON CONFLICT (lesson_hour)
+                    DO UPDATE SET 
+                    start_hour    = excluded.start_hour,
+                    end_hour      = excluded.end_hour,
+                    start_minutes = excluded.start_minutes,
+                    end_minutes   = excluded.end_minutes",
+                    [lesson_num, start_hour.into(), start_minute.into(), end_hour.into(), end_minute.into()])?;
+                }
+                _ => {
+                    return Ok("msat/500-Internal-Server-Error&error=error+occured+while+inserting+values".to_string());
+                }
+            }
+            return Ok("msat/201-Created".to_string());
         }
-        MainpulationType::Update(post) => {
-            todo!();
-        }
-        MainpulationType::Create(post) => {
-            todo!();
+        MainpulationType::Get(get) => {
+            match get{
+                GET::Teacher { teacher_id } => {
+                    let mut stmt = db.prepare("SELECT teacher_name FROM Teachers WHERE teacher_id = ?1")?;
+                    let string = stmt.query_row([teacher_id], |row| {
+                        Ok(
+                            row.get::<usize, String>(0).unwrap_or_default()
+                        )
+                    })?;
+                    return Ok(format!("msat/200-OK&teacher_name={}", string.to_single('_')));
+                }
+                GET::Class { class_id } => {
+                    let mut stmt = db.prepare("SELECT class_name FROM Classes WHERE class_id = ?1")?;
+                    let name = stmt.query_row([class_id], |row|{
+                        Ok(
+                            row.get::<usize, String>(0).unwrap_or_default()
+                        )
+                    })?;
+                    return Ok(format!("msat/200-OK&class_name={}",name));
+                }
+                GET::Classroom { classroom_id } => {
+                    let mut stmt = db.prepare("SELECT classroom_name FROM Classrooms WHERE classroom_id = ?1")?;
+                    let name = stmt.query_row([classroom_id], |row|{
+                        Ok(
+                            row.get::<usize, String>(0).unwrap_or_default()
+                        )
+                    })?;
+                    return Ok(format!("msat/200-OK&classroom_name={}",name));
+                }
+                GET::Subject { subject_id } => {
+                    let mut stmt = db.prepare("SELECT subject_name FROM Subjects WHERE subject_id = ?1")?;
+                    let name = stmt.query_row([subject_id], |row|{
+                        Ok(
+                            row.get::<usize, String>(0).unwrap_or_default()
+                        )
+                    })?;
+                    return Ok(format!("msat/200-OK&subject_name={}",name));
+
+                }
+                GET::Corridor { corridor_id } => {
+                    let mut stmt = db.prepare("SELECT corridor_name FROM Corridors WHERE corridor = ?1")?;
+                    let name = stmt.query_row([corridor_id], |row|{
+                        Ok(
+                            row.get::<usize, String>(0).unwrap_or_default()
+                        )
+                    })?;
+                    return Ok(format!("msat/200-OK&corridor_name={}",name));
+                }
+                GET::Year { year } => {
+                    let mut stmt = db.prepare("SELECT year_name, start_date, end_date FROM Years WHERE academic_year = ?1")?;
+                    let (year_name, start_date, end_date) : (String, String, String) = stmt.query_row([year], |row| {
+                        Ok((
+                            row.get(0).unwrap_or_default(),
+                            row.get(1).unwrap_or_default(),
+                            row.get(2).unwrap_or_default()
+                        ))
+                    })?;
+                    return Ok(format!("msat/200-OK&year_name={}&start_date={}&end_date={}", 
+                            year_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')));
+                }
+                GET::Lesson { class, lesson_hour, weekd, semester, academic_year } => {
+                    let mut stmt = db.prepare("SELECT classroom_id, teacher_id, subject_id FROM Lessons 
+                    WHERE class_id    = ?1 
+                    AND weekday       = ?2
+                    AND semester      = ?3 
+                    AND academic_year = ?4 
+                    AND lesson_hour   = ?5")?;
+                    let (classroom, teacher, subject) : (String, String, String) = 
+                    stmt.query_row([class, lesson_hour.into(), weekd.into(), semester.into(), academic_year.into()], |row| {
+                        Ok((
+                                row.get(0).unwrap_or_default(),
+                                row.get(1).unwrap_or_default(),
+                                row.get(2).unwrap_or_default()
+                        ))
+                    })?;
+                    return Ok(format!("msat/200-OK&classroom_name={}&teacher_name={}&subject_name={}", classroom, teacher, subject));
+                }
+                GET::Semester { semester } => {
+                    let mut stmt = db.prepare("SELECT semester_name, start_date, end_date 
+                        FROM Semesters 
+                        WHERE semester = ?1")?;
+                    let (semester_name, start_date, end_date) : (String, String, String) =
+                        stmt.query_row([semester], |row| {
+                            Ok((
+                                    row.get(0).unwrap_or_default(),
+                                    row.get(1).unwrap_or_default(),
+                                    row.get(2).unwrap_or_default()
+                            ))
+                        })?;
+                    return Ok(format!("msat/200-OK&semester_name={}&start_date={}&end_date={}", 
+                        semester_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')));
+                }
+                GET::LessonHour { lesson_hour } => {
+                    let mut stmt = db.prepare("SELECT start_hour, start_minutes, end_hour, end_minutes 
+                        FROM LessonHours
+                        WHERE lesson_hour = ?1")?;
+                    let (start_hour, start_minutes, end_hour, end_minutes) : (u8, u8, u8, u8) 
+                    = stmt.query_row([lesson_hour], |row| {
+                        Ok((
+                                row.get(0).unwrap_or_default(),
+                                row.get(1).unwrap_or_default(),
+                                row.get(2).unwrap_or_default(),
+                                row.get(3).unwrap_or_default()
+                        ))
+                    })?;
+                    return Ok(
+                        format!("msat/200-OK&start_time={:02}:{:02}&end_time={:02}:{:02}", 
+                        start_hour, start_minutes, end_hour, end_minutes));
+                }
+                GET::Break { break_hour } => {
+                    let mut stmt = db.prepare("SELECT start_hour, start_minutes, end_hour, end_minutes 
+                        FROM Breaks
+                        WHERE break_num = ?1")?;
+                    let (start_hour, start_minutes, end_hour, end_minutes) : (u8, u8, u8, u8) 
+                    = stmt.query_row([break_hour], |row| {
+                        Ok((
+                                row.get(0).unwrap_or_default(),
+                                row.get(1).unwrap_or_default(),
+                                row.get(2).unwrap_or_default(),
+                                row.get(3).unwrap_or_default()
+                        ))
+                    })?;
+                    return Ok(
+                        format!("msat/200-OK&start_time={:02}:{:02}&end_time={:02}:{:02}", 
+                        start_hour, start_minutes, end_hour, end_minutes));
+                }
+                GET::Duty { weekd, break_num, teacher_id, semester, academic_year } => {
+                    let mut stmt = db.prepare(
+                        "SELECT Corridors.place_id 
+                        FROM Duties 
+                        JOIN Corridors ON Duties.place_id = Corridors.corridor
+                        WHERE weekday = ?1
+                        AND break_num = ?2 
+                        AND teacher_id = ?3 
+                        AND semester = ?4
+                        AND academic_year = ?5"
+                    )?;
+                    let result = stmt.query_row([weekd.into(), break_num.into(), teacher_id, semester.into(), academic_year.into()], |row| {
+                        Ok(
+                            row.get::<usize, String>(0).unwrap_or_default()
+                        )
+                    })?;
+                    return Ok(format!("msat/200-OK&duty_place={}", result.to_single('_')));
+                }
+            }
         }
     }
+}
+
+pub async fn handle_request(request: &str, db: &MutexGuard<'_, rusqlite::Connection>) -> Result<String, ()>{
+    let parsed_request = Request::from_str(request).parse()?;
+    todo!();
 }
 
 // Tests 
