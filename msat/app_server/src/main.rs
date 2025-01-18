@@ -6,7 +6,6 @@
 ///================================
 
 // Global Imports
-use core::str;
 use std::{ 
     io::{
         Read, Write
@@ -21,16 +20,12 @@ use tokio::sync::{
     Semaphore
 };
 use rusqlite::Connection as SQLite;
-use chrono::{
-    self, Datelike, Timelike
-};
 use colored::Colorize;
 // Local Imports
 
 use shared_components::{
-    backend::{self, manipulate_database, MainpulationType, ParsedRequest, Request, RequestType}, consts::*, types::*, utils, visual
+    backend::{self, get_lessons_by_teacher_id, manipulate_database, MainpulationType, ParsedRequest, Request, RequestType}, consts::*, types::*, utils, visual
 };
-use shared_components::utils::*;
 
 // Entry point
 #[tokio::main]
@@ -130,7 +125,7 @@ async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>, limit: A
                 let cloned_timeout = Arc::clone(&timeout);
                 let cloned_limit = Arc::clone(&limit);
                 if let Ok(_) = tokio::time::timeout(std::time::Duration::from_secs(*cloned_timeout), cloned_limit.acquire_owned()).await{
-                let shared_db = Arc::clone(&db);
+                    let shared_db = Arc::clone(&db);
                     tokio::spawn(
                         async move{
                             if let Err(error) = handle_connection(stream, shared_db).await{
@@ -215,7 +210,8 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                     = (args.get("weekday"), args.get("break_num"), args.get("teacher_id"), args.get("semester"), args.get("academic_year")) 
                     {
                         if let (Ok(weekd), Ok(break_num), Ok(teacher_id), Ok(semester), Ok(academic_year))
-                        = (weekd_str.parse::<u8>(), break_num_str.parse::<u8>(), teacher_str.parse::<u16>(), semester_str.parse::<u8>(), year_str.parse::<u8>())
+                        = (weekd_str.parse::<u8>(), break_num_str.parse::<u8>(), teacher_str.parse::<u16>(), 
+                            semester_str.parse::<u8>(), year_str.parse::<u8>())
                         {
                             match manipulate_database(MainpulationType::Get(backend::GET::Duty 
                                     { 
@@ -236,6 +232,43 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         }
                     }
                 }
+                3 => {
+                    if let Some(teacherid_str) = args.get("teacher_id"){
+                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
+                            if let Ok(vec) = get_lessons_by_teacher_id(teacher_id, &*db.lock().await){
+                                let mut to_return = String::new();
+                                to_return.push_str("msat/200-OK");
+                                let mut amount = 0;
+                                for lesson in vec{
+                                    if let Some(lessonh) = lesson.lessonh.lesson_hour{
+
+                                        if amount < lessonh{
+                                            amount = lessonh;
+                                        }
+
+                                        if let Some(class_id) = lesson.class{
+                                            to_return.push_str(&format!("&class{}={}", lessonh, class_id.to_single('_')));
+                                        }
+                                        if let Some(classroom_id) = lesson.classroom{
+                                            to_return.push_str(&format!("&classroom{}={}", lessonh, classroom_id.to_single('_')));
+                                        }
+                                        if let Some(subject) = lesson.subject{
+                                            to_return.push_str(&format!("&subject{}={}", lessonh, subject.to_single('_')));
+                                        }
+                                        if let (Some(start_hour), Some(start_minute)) = (lesson.lessonh.start_hour, lesson.lessonh.start_minute){
+                                            to_return.push_str(&format!("&start_date{}={:02}:{:02}", lessonh, start_hour, start_minute));
+                                        }
+                                        if let (Some(end_hour), Some(end_minute)) = (lesson.lessonh.end_hour, lesson.lessonh.end_minutes){
+                                            to_return.push_str(&format!("&end_date{}={:02}:{:02}", lessonh, end_hour, end_minute));
+                                        }
+                                    }
+                                }
+                                to_return.push_str(&format!("&AMOUNT={}",amount));
+                                return Ok(to_return);
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -244,8 +277,9 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 // Lesson
                 1 => {
                     if let (Some(weekday_str), Some(classid_str), Some(classroomid_str), Some(teacherid_str), Some(subjectid_str), Some(semester_str),
-                        Some(academicyear_str), Some(lessonhour_str)) = (args.get("weekday"), args.get("class_id"), args.get("classroom_id"), args.get("teacher_id"), 
-                            args.get("subject_id"), args.get("semester"), args.get("academic_year"), args.get("lesson_hour"))
+                        Some(academicyear_str), Some(lessonhour_str)) = 
+                        (args.get("weekday"), args.get("class_id"), args.get("classroom_id"), args.get("teacher_id"), 
+                         args.get("subject_id"), args.get("semester"), args.get("academic_year"), args.get("lesson_hour"))
                     {
                         if let (Ok(weekday), Ok(class_id), Ok(classroom_id), Ok(teacher_id), Ok(subject_id), Ok(semester), Ok(academic_year),
                             Ok(lesson_hour)) = 
@@ -254,7 +288,8 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         {
                             match manipulate_database(
                             MainpulationType::Insert
-                            (backend::POST::Lesson(Some((weekday, class_id, classroom_id, teacher_id, subject_id, lesson_hour, semester, academic_year)))), &*db.lock().await)
+                            (backend::POST::Lesson
+                            (Some((weekday, class_id, classroom_id, teacher_id, subject_id, lesson_hour, semester, academic_year)))), &*db.lock().await)
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
@@ -285,12 +320,13 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                 }
                 // Duty
                 3 => {
-                    if let (Some(weekday_str), Some(breaknum_str), Some(teacherid_str), Some(semester_str), Some(academicyear_str), Some(placeid_str)) = 
-                    (args.get("weekday"), args.get("break_num"), args.get("teacher_id"), args.get("semester"), args.get("academic_year"), args.get("place_id"))
+                    if let (Some(weekday_str), Some(breaknum_str), Some(teacherid_str),Some(semester_str), Some(academicyear_str), Some(placeid_str)) = 
+                    (args.get("weekday"), args.get("break_num"), args.get("teacher_id"), 
+                     args.get("semester"), args.get("academic_year"), args.get("place_id"))
                     {
                         if let (Ok(weekday), Ok(break_num), Ok(teacher_id), Ok(semester), Ok(academic_year), Ok(place_id)) = 
-                        (weekday_str.parse::<u8>(),breaknum_str.parse::<u8>(),teacherid_str.parse::<u16>(),semester_str.parse::<u8>(), academicyear_str.parse::<u8>(),
-                         placeid_str.parse::<u16>())
+                        (weekday_str.parse::<u8>(),breaknum_str.parse::<u8>(),teacherid_str.parse::<u16>(),
+                        semester_str.parse::<u8>(), academicyear_str.parse::<u8>(),placeid_str.parse::<u16>())
                         {
                             match manipulate_database(MainpulationType::Insert
                                 (backend::POST::Duty(Some((weekday, break_num, teacher_id, place_id, semester, academic_year)))), 
@@ -428,6 +464,7 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                         }
                     }
                 }
+                // Corridors
                 11 => {
                     if let (Some(teacherid_str), Some(teacher_name)) = (args.get("place_id"), args.get("place_name")){
                         if let Ok(teacher_id) = teacherid_str.parse::<u16>(){

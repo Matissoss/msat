@@ -10,4 +10,3 @@ toml     = {workspace=true}
 serde    = {workspace=true}
 colored  = {workspace=true}
 chrono   = "0.4.39"
-serde_cbor = "0.11.2"

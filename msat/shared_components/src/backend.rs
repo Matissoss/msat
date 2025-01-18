@@ -14,12 +14,13 @@ use chrono::{Timelike,Datelike};
 use tokio::{
     fs, sync::{
         MutexGuard,
+        Mutex,
         Semaphore
     }
 };
 use toml;
 use std::{
-    collections::HashMap, fs::File, sync::{
+    collections::HashMap, sync::{
         Arc, LazyLock
     }
 };
@@ -29,6 +30,9 @@ use crate::types::*;
 // static/const declaration
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Timestamp{
+    year: u16,
+    month: u8,
+    day: u8,
     hour: u8,
     minute: u8,
     secs: u8
@@ -41,6 +45,9 @@ impl Timestamp{
     fn now() -> Timestamp{
         let now = &chrono::Local::now();
         return Timestamp{
+            year  : (now.year  () & 0xFFFF).try_into().unwrap(),
+            month : (now.month () & 0xFF).try_into().unwrap(),
+            day   : (now.day   () & 0xFF).try_into().unwrap(),
             hour  : (now.hour  () & 0xFF).try_into().unwrap(),
             minute: (now.minute() & 0xFF).try_into().unwrap(),
             secs  : (now.second() & 0xFF).try_into().unwrap()
@@ -53,6 +60,9 @@ impl From<u32> for Timestamp{
         let minute = ((value % 3600) / 60) as u8;
         let second = (value % 60) as u8;
         return Self{
+            year: (chrono::Local::now().year() & 0xFFFF).try_into().unwrap(),
+            month: (chrono::Local::now().month() & 0xFF).try_into().unwrap(),
+            day: (chrono::Local::now().day() & 0xFF).try_into().unwrap(),
             hour,
             minute,
             secs: second
@@ -63,6 +73,15 @@ impl From<u32> for Timestamp{
 // statics
 pub static GLOBAL_STATIC_SEMAPHORE : LazyLock<Arc<Semaphore>> = LazyLock::new(|| {
     Arc::new(Semaphore::new(0))
+});
+pub static CLASSES : LazyLock<Mutex<u16>> = LazyLock::new(|| {
+    Mutex::new(0)
+});
+pub static LESSONHOURS : LazyLock<Mutex<u16>> = LazyLock::new(|| {
+    Mutex::new(0)
+});
+pub static WEEKDAY : LazyLock<Mutex<u8>> = LazyLock::new(|| {
+    Mutex::new(0)
 });
 pub static TIMEOUT : u32 = 30;
 
@@ -288,6 +307,27 @@ pub fn init_db() -> Result<Database, SQLiteError>{
     return Ok(db);
 }
 
+pub fn get_year_and_semester(db: &rusqlite::Connection) -> Result<(u8, u8), rusqlite::Error>{
+    let mut stmt1 = db.prepare("
+    SELECT academic_year 
+    FROM Years 
+    WHERE start_date < ?1
+    AND end_date     > ?1")?;
+    let now = chrono::Local::now();
+    let year = stmt1.query_row([now.to_rfc3339()], |row|{
+        Ok(row.get::<usize, u8>(0).unwrap_or_default())
+    })?;
+    let mut stmt2 = db.prepare(
+    "SELECT semester 
+    FROM Semesters 
+    WHERE start_date < ?1
+    AND end_date     > ?1
+    ")?;
+    let semester = stmt2.query_row([now.to_rfc3339()], |row|{
+        Ok(row.get::<usize, u8>(0).unwrap_or_default())
+    })?;
+    return Ok((year, semester));
+}
 
 /// STATIC
 pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> Result<Vec<JoinedLessonRaw>, ()>{
@@ -319,47 +359,114 @@ pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> R
                         });
                         if let Ok(ok_iter) = iter{
                             let mut to_return = vec![];
+                            let mut largest_class = 0;
+                            let mut largest_lessonh = 0;
+                            let mut largest_weekd = 0;
                             for raw_lesson in ok_iter{
                                 if let Ok(ok_raw_lesson) = raw_lesson{
+                                    if largest_class < ok_raw_lesson.class.unwrap_or_default(){
+                                        largest_class = ok_raw_lesson.class.unwrap_or_default();
+                                    }
+                                    if largest_lessonh < ok_raw_lesson.lessonh.unwrap_or_default(){
+                                        largest_lessonh = ok_raw_lesson.lessonh.unwrap_or_default();
+                                    }
+                                    if largest_weekd < ok_raw_lesson.weekday.unwrap_or_default(){
+                                        largest_weekd = ok_raw_lesson.weekday.unwrap_or_default();
+                                    }
                                     to_return.push(ok_raw_lesson);
                                 }
                             }
-                            if let Ok(output_file) = File::open("data/LESSON_TABLE.raw.static.cbor"){
-                                match serde_cbor::to_writer(output_file, &to_return){
-                                    Ok(_) => {
-                                        visual::info("Saved STATIC Lesson Table");
+                            *LESSONHOURS.lock().await = largest_lessonh;
+                            *WEEKDAY.lock().await = largest_weekd;
+                            *CLASSES.lock().await = largest_class;
+                            match tokio::fs::try_exists("data/static").await{
+                                Ok(true) => {}
+                                Ok(false)|Err(_) => {
+                                match tokio::fs::create_dir_all("data/static").await{
+                                        Ok(_)  => {}
+                                        Err(_) => {}
+                                    };
+                                }
+                            }
+                            for lesson in &to_return{
+                                if let 
+                                (Some(class), Some(classroom), Some(teacher), Some(subject), Some(lessonh),Some(weekd), Some(academic), Some(sems)) = 
+                                    (lesson.class,lesson.classroom,lesson.teacher,lesson.subject,lesson.lessonh,lesson.weekday,lesson.academic_year,
+                                lesson.semester)
+                                {
+                                    match tokio::fs::write(format!("data/static/TEACHER:{}={}-{}|{}-{}",teacher,weekd,lessonh,academic,sems), 
+                                        crate::static_data::serialize([class,classroom,subject])
+                                    ).await
+                                    {
+                                        Ok   (_) => visual::debug("saved STATIC data"),
+                                        Err(err) => visual::error(Some(err), "Couldn't save STATIC data"),
                                     }
-                                    Err(_) => {
-                                        visual::info("Couldn't save STATIC Lesson Table to static_data/LESSON_TABLE.raw.static.cbor");
+                                    match tokio::fs::write(format!("data/static/CLASS:{}={}-{}|{}-{}", class, weekd, lessonh,academic,sems),
+                                        crate::static_data::serialize([classroom,subject,teacher])).await
+                                    {
+                                        Ok (_)   => visual::debug("saved STATIC data"),
+                                        Err(err) => visual::error(Some(err), "Couldn't save STATIC data"), 
                                     }
                                 }
                             }
+
                             drop(perm);
                             return Ok(to_return);
                         }
                         else{
-                            return static_old_table();
+                            return static_old_table(&*db).await;
                         }
                     }
                     Err(_) => {
-                        return static_old_table();
+                        return static_old_table(&*db).await;
                     }
                 }
             }
         }
     }
-    return static_old_table();
+    return static_old_table(&*db).await;
 }
 /// STATIC
-pub fn static_old_table() -> Result<Vec<JoinedLessonRaw>, ()>{
-    if let Ok(file_content) = std::fs::File::open("data/LESSON_TABLE.raw.static.cbor"){
-        match serde_cbor::from_reader::<Vec<JoinedLessonRaw>, File>(file_content)
-        {
-            Ok(v) => return Ok(v),
-            Err(_) => return Err(())
+pub async fn static_old_table(db: &rusqlite::Connection) -> Result<Vec<JoinedLessonRaw>, ()>{
+    let mut to_return = vec![];
+    let largest_lessonh = &*LESSONHOURS.lock().await;
+    let largest_weekd   = &*WEEKDAY.lock().await;
+    let largest_class   = &*CLASSES.lock().await;
+    let (academic_year, semester) = get_year_and_semester(db).unwrap_or_default();
+
+    for lc in 0..*largest_class{
+        for lw in 0..*largest_weekd{
+            for lh in 0..*largest_lessonh{
+                match tokio::fs::read(format!("data/static/CLASS:{}={}-{}|{}-{}",lc,lw,lh,academic_year,semester)).await{
+                    Ok(b) => {
+                        let mut slice: [u8; 6] = [0; 6];
+                        let mut ind = 0;
+                        for i in b{
+                            slice[ind] = i;
+                            if ind+1 == 6{
+                                break;
+                            }
+                            ind+=1usize;
+                        }
+                        let data = crate::static_data::deserialize(slice);
+                        to_return.push(JoinedLessonRaw{
+                            weekday: Some(lw),
+                            teacher: Some(data[2]),
+                            classroom: Some(data[1]),
+                            subject: Some(data[0]),
+                            lessonh: Some(lh),
+                            class: Some(lc),
+                            academic_year: Some(academic_year),
+                            semester: Some(semester)
+                        });
+                    }
+                    _ => {}
+                }
+            }
         }
-    };
-    return Err(());
+    }
+
+    return Ok(to_return);
 }
 
 pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connection) -> Result<Vec<JoinedLesson>, rusqlite::Error>{
@@ -1005,28 +1112,5 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                 }
             }
         }
-    }
-}
-
-pub async fn handle_request(request: &str, db: &MutexGuard<'_, rusqlite::Connection>) -> Result<String, ()>{
-    let parsed_request = Request::from_str(request).parse()?;
-    todo!();
-}
-
-// Tests 
-
-#[cfg(test)]
-pub mod tests{
-    use super::*;
-    #[test]
-    fn timestamp(){
-        let timeout = 30;
-        let time = Timestamp{
-            hour  : 18,
-            minute: 30,
-            secs  : 10
-        };
-        println!("RES: {}", Timestamp::can_proceed(&time, timeout));
-        //assert_eq!(true, Timestamp::can_proceed(&time, timeout));
     }
 }

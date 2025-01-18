@@ -4,78 +4,14 @@
 /// where to put
 ///==============================================
 
-use std::{net::IpAddr, str::FromStr};
-
-pub fn quick_match<T, E>(statement: Result<T, E>) -> Option<T>
-{
-    match statement{
-        Ok(v) => return Some(v),
-        Err(_) => return None
+use std::{
+    net::IpAddr, 
+    str::FromStr,
+    process::{
+        Command,
+        ExitStatus
     }
-}
-pub fn format_two_digit_time(time1: u8, time2: u8) -> String{
-    if time1 < 10 && time2 < 10{
-        return format!("0{}0{}", time1, time2);
-    }
-    else if time1 < 10 && time2 > 10{
-        return format!("0{}{}", time1, time2);
-    }
-    else if time1 > 10 && time2 < 10{
-        return format!("{}0{}", time1, time2);
-    }
-    else{
-        return format!("{}{}", time1, time2);
-    }
-}
-pub fn format_mmdd(input: &str) -> Result<(u8, u8), ()>{
-    if input.len() != 4{
-        return Err(());
-    }
-    let month = match input[0..1].parse::<u8>(){
-        Ok(v) => v,
-        Err(_) => {
-            return Err(());
-        }
-    };
-    let day = match input[2..3].parse::<u8>(){
-        Ok(v) => v,
-        Err(_) => {
-            return Err(());
-        }
-    };
-    return Ok((month, day));
-}
-
-pub fn format_lessonh(hour: u16) -> String{
-    if hour < 10{
-        return format!("00:0{}", hour);
-    }
-    else if hour < 100{
-        return format!("00:{}", hour);
-    }
-    else if hour < 1000{
-        let hour_chars = hour.to_string().chars().collect::<Vec<char>>();
-        format!("0{}:{}{}", hour_chars[0], hour_chars[1], hour_chars[2])
-    }
-    else if hour < 10000{
-        let hour_chars = hour.to_string().chars().collect::<Vec<char>>();
-        format!("{}{}:{}{}", hour_chars[0], hour_chars[1], hour_chars[2], hour_chars[3])
-    }
-    else{
-        return format!("00:00");
-    }
-}
-
-pub fn format_time(time: u32) -> String{
-    if time < 10{
-        return format!("0{}", time);
-    }
-    else{
-        return format!("{}", time);
-    }
-}
-
-use std::process::{Command, ExitStatus};
+};
 
 pub fn get_public_ip() -> Result<IpAddr, ()>{
     let curl_result = Command::new("curl")

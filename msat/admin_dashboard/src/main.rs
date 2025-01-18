@@ -6,16 +6,24 @@
 
 // Global imports
 use std::{
-    collections::BTreeMap, io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
+    io::{
+        Read, 
+        Write
+    }, 
+    net::{
+        IpAddr, 
+        TcpListener, 
+        TcpStream
+    }, 
+    sync::Arc
 };
 use tokio::sync::{Mutex, Semaphore};
 use rusqlite;
 
 // Local Imports 
 use shared_components::{
-    backend::{self, Request, ParsedRequest}, consts::*, types::*, visual
+    backend::{self, Request}, consts::*, types::*, visual
 };
-use web::dashboard;
 mod web;
 
 #[tokio::main]
@@ -184,8 +192,17 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
         }
     }
 }
-async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) -> String{
+async fn handle_custom_request(request: &str, _db: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) -> String{
     // request example: /?msat/version&method=POST+1&version=10&args=20
+    
+    let _request_parsed = match Request::from_str(request).parse(){
+        Ok(v) => v,
+        Err(_) => {
+            return lang.english_or("<error><p>Server couldn't parse request</p></error>", 
+                "<error><p>Serwer nie mógł przetworzyć zapytania</p></error>");
+        }
+    };
+
     if *lang == Language::Polish{
         return "<error><p>Nie byliśmy w stanie zdobyć żadnych informacji</p></error>".to_string();
     }
@@ -217,6 +234,7 @@ fn get_types(line: String) -> Vec<String> {
     types
 }
 
+#[allow(dead_code)]
 fn database_insert_success_msg(lang: &Language) -> String{
     return if lang == &Language::Polish{
         "<success><p>Pomyślnie dodano dane do bazy danych</p></success>".to_string()
@@ -226,6 +244,7 @@ fn database_insert_success_msg(lang: &Language) -> String{
     };
 }
 
+#[allow(dead_code)]
 fn database_insert_error_msg(lang: &Language) -> String{
     return if lang == &Language::Polish{
         "<error><p>Wystąpił błąd podczas dodawania danych do bazy danych, sprawdź czy zapytanie jest poprawne, 

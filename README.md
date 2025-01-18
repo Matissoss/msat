@@ -47,19 +47,11 @@ uses 64-bit x86 - x86_64).
 - **tar** for compressing build,
 - **git** (***optional***) for downloading source code,
 - **bash** (***for method 1***) or just shell/terminal compatible with commands: *rm*, *mkdir*, *cp*, *mv*.
-    
-1. Clone repo with **git** (`git clone https://github.com/Matissoss/msat.git`) or download source code from releases section,
-### Now, there are two ways to build **msat** from scratch:
-1. Building using official **local-build.sh** script:
-        - 1. go into `ci` directory,
-        - 2. use command: `sh local-build.sh`
-2. Building using **cargo**/**rustc**:
-     This is ***NOT*** recommended way to build **msat**, because it requires more effort that is automated with **local-build.sh** script, 
-     but if you want:
-   1. Compile *admin_dashboard/app_server directory* using `cargo build --release`,
-   2. Add directory where you want your server to be stored,
-   3. Clone directory named **web** in *admin_dashboard* into directory you made,
-   4. ***(OPTIONAL)*** Compress build directory using `tar`, `winrar` or your favourite compression software.
+   
+### Building guide
+- 1. Clone repo with **git** (`git clone https://github.com/Matissoss/msat.git`) or download source code from releases section,
+- 2. Go into `ci` directory,
+- 3. Use command: `./build.sh` and follow instructions
 ## msatc 
 > **msatc**'s development is not started yet
 
