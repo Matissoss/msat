@@ -2,10 +2,14 @@
 ///                 Types.rs
 ///     Contains types used in msat
 /// ===========================================
-use serde::{Serialize, Deserialize};
+use serde::{
+    Serialize, 
+    Deserialize
+};
+use chrono::Datelike;
 use std::net::IpAddr;
+use crate::consts::*;
 use crate::backend::RequestType as Request;
-use crate::utils::format_lessonh;
 impl ToString for Request{
     fn to_string(&self) -> String {
         match &self{
@@ -21,221 +25,111 @@ impl ToString for Request{
 }
 
 #[derive(PartialEq,Eq,Serialize,Deserialize,Clone,Debug, Default)]
-pub struct Configuration{
+pub struct Config{
     pub password           : String,
     pub language           : Language,
     pub http_server        : HttpServerConfig,
     pub application_server : AppServerConfig
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HttpServerConfig{
-    pub http_port: u16,
+    pub port: u16,
+    pub ip  : IpAddr,
     pub max_connections: u16,
     pub max_timeout_seconds : u16,
-    pub tcp_ip  : Option<IpAddr>
 }
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AppServerConfig{
     pub port : u16,
+    pub ip : IpAddr,
     pub max_connections: u16,
     pub max_timeout_seconds : u16,
-    pub tcp_ip : Option<IpAddr>
 }
 
-#[allow(unused)]
-#[derive(Clone,Copy,Debug,PartialEq, Eq, PartialOrd, Ord)]
-pub enum ConnectionError{
-    CannotRead,
-    WrongVersion,
-    RequestParseError,
-    NoVersion,
-    WrongPassword,
-    NoPassword,
-    WritingError,
-    ResponseError,
-    WrongHeader,
-    Other
+impl std::default::Default for HttpServerConfig{
+    fn default() -> Self{
+        return Self{
+            port: 8000,
+            ip: *LOCAL_IP,
+            max_timeout_seconds: 10,
+            max_connections: 100
+        }
+    }
+}
+impl std::default::Default for AppServerConfig{
+    fn default() -> Self{
+        return Self{
+            port: 8888,
+            max_connections: 100,
+            max_timeout_seconds: 10,
+            ip: *LOCAL_IP
+        }
+    }
 }
 
-#[allow(unused)]
-pub enum RequestError{
-    LengthError,
-    DatabaseError,
-    UnknownRequestError,
-    NoDataFoundError,
-    ParseIntError(String)
+pub enum ServerError{
+    ParseIntError{arg: String},
+    ParseArgError{args: Vec<String>},
+    ArgsMissing  {expected: Vec<String>},
+    ReadRequestError,
+    UnknownRequest,
+    WriteRequestError,
+    HTTP{err: HTTPError},
+    InvalidRequest(String),
+    RequestPasswordError{entered_password: String},
+    VersionNotSupported(u16),
+    DatabaseError(rusqlite::Error)
+}
+
+pub enum HTTPError{
+    NotFound,
+    NotImplemented,
+    InternalServerError,
+    URITooLong(String)
 }
 
 #[allow(unused)]
 pub trait SendToClient{
-    fn to_response(input: Self) -> String;
+    fn to_response(&self) -> String;
 }
 
-impl std::fmt::Display for RequestError{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[allow(warnings)]
+impl SendToClient for ServerError{
+    fn to_response(&self) -> String {
         match &self{
-            Self::LengthError => {
-                writeln!(f, "400: Client provided wrong amount of arguments")
-            }
-            Self::DatabaseError => {
-                writeln!(f, "500: Server couldn't make operation on database")
-            }
-            Self::NoDataFoundError => {
-                writeln!(f, "500: Server couldn't find any data requested by user")
-            }
-            Self::ParseIntError(s) => {
-                writeln!(f, "400: Client provided argument that couldn't be parsed as integer ({})", s)
-            }
-            Self::UnknownRequestError => {
-                writeln!(f, "400: Server doesn't know how to proceed with this request")
-            }
+            Self::UnknownRequest => format!("msat/501-Not-Implemented&error_msg='UnknownRequest'"),
+            Self::ReadRequestError => format!("msat/500-Internal-Server-Error&error_msg='ReadError'"),
+            Self::WriteRequestError => format!("msat/500-InternalServerError&error_msg='WriteError'"),
+            Self::ParseIntError {arg} => format!("msat/400-Bad-Request&error_msg='ParseIntError={}'",arg),
+            Self::ParseArgError {args} => format!("msat/400-Bad-Request&error_msg='Args={}'", args.join("+")),
+            Self::ArgsMissing {expected} => format!("msat/400-Bad-Request&error_msg='ArgsExpected={}'", expected.join("+")),
+            Self::InvalidRequest(request) => format!("msat/400-Bad-Request&error_msg='InvalidRequest='{}''", request),
+            Self::HTTP {err} => format!("msat/0-http_error&error={}", err.to_response()),
+            Self::RequestPasswordError {entered_password} => format!("msat/400-Bad-Request&error_msg='WrongPassword={}'", entered_password.to_string().to_single('+')),
+            Self::VersionNotSupported  (version_entered) => format!("msat/400-Bad-Request&error_msg='NotSupportedVersion={}&supported={}'", version_entered, 
+                SUPPORTED_VERSIONS.map(|n| n.to_string()).join("+")),
+            Self::DatabaseError(_) => "msat/500-Internal-Server-Error&error_msg='DatabaseError'".to_string()
         }
     }
 }
 
-impl std::fmt::Display for ConnectionError{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[allow(warnings)]
+impl SendToClient for HTTPError{
+    fn to_response(&self) -> String{
         match &self{
-            Self::Other => {
-                writeln!(f, "Other")
-            }
-            Self::NoVersion => {
-                writeln!(f, "400: Version wasn't provided in request.")
-            }
-            Self::NoPassword => {
-                writeln!(f, "403: Password wasn't provided in request.")
-            }
-            Self::WrongVersion => {
-                writeln!(f, "505: Client uses different version than server.")
-            }
-            Self::CannotRead => {
-                writeln!(f, "500: Server was unable to read message from client.")
-            }
-            Self::RequestParseError => {
-                writeln!(f, "400: Server was unable to parse request.")
-            }
-            Self::WritingError => {
-                writeln!(f, "500: Server was unable to send message to client.")
-            }
-            Self::WrongPassword => {
-                writeln!(f, "400: Client provided wrong password.")
-            }
-            Self::WrongHeader => {
-                writeln!(f, "400: Client provided wrong header")
-            }
-            Self::ResponseError => {
-                writeln!(f, "400: Server was unable to respond to request.")
-            }
+            Self::NotFound => format!("404-Not-Found"),
+            Self::NotImplemented => format!("501-Not-Implemented"),
+            Self::InternalServerError => format!("500-Internal-Server-Error"),
+            Self::URITooLong (_) => format!("414-URI-Too-Long")
         }
     }
-}
-
-impl SendToClient for RequestError{
-    fn to_response(input: Self) -> String {
-        match input{
-            Self::DatabaseError => {
-                "msat/500-Internal-Server-Error&msg=Server+couldn't+communicate+with+database".to_string()
-            }
-            Self::UnknownRequestError => {
-                "msat/400-Bad-Request&msg=Server+doesn't+implement+this+request".to_string()
-            }
-            Self::LengthError => {
-                "msat/400-Bad-Request&msg=Client+provided+wrong+amount+of+arguments".to_string()
-            }
-            Self::NoDataFoundError => {
-                "msat/500-Internal-Server-Error&msg=Server+couldn't+provide+any+data".to_string()
-            }
-            Self::ParseIntError(s) => {
-                format!("msat/400-Bad-Request&msg=Client+provided+string:+\"{}\"+which+couldn't+be+parsed+to+16-bit+integer", s)
-            }
-        }
-    }
-}
-impl SendToClient for ConnectionError{
-    fn to_response(input: Self) -> String {
-        match input{
-            Self::ResponseError => {
-                "msat/400-Bad-Request&msg=Server+couldn't+provide+response+to+client".to_string()
-            }
-            Self::Other => {
-                "msat/0-Unknown&msg=Other".to_string()
-            }
-            Self::NoVersion => {
-                "msat/400-Bad-Request&msg=Client+didn't+provide+version+in+request".to_string()
-            }
-            Self::CannotRead => {
-                "msat/500-Internal-Server-Request&msg=Server+couldn't+read+request+sent+by+client".to_string()
-            }
-            Self::NoPassword => {
-                "msat/400-Bad-Request&msg=Client+didn't+provide+password+in+request".to_string()
-            }
-            Self::WrongVersion => {
-                "msat/505-Version-not-supported&msg=Client+provided+version+that+is+different+from+server".to_string()
-            }
-            Self::WritingError => {
-                "msat/500-Internal-Server-Request&msg=Server+couldn't+send+response+to+client".to_string()
-            }
-            Self::WrongPassword => {
-                "msat/400-Bad-Request&msg=Client+provided+wrong+password+in+POST+request".to_string()
-            }
-            Self::RequestParseError => {
-                "msat/400-Bad-Request&msg=Server+couldn't+parse+request+sent+by+client".to_string()
-            }
-            Self::WrongHeader => {
-                "msat/400-Bad-Request&msg=Client+provided+wrong+header".to_string()
-            }
-        }
-    }
-}
-
-pub struct Lesson{
-    pub week_day     : u8,
-    pub class_id     : u16,
-    pub lesson_hour  : u8,
-    pub teacher_id   : u16,
-    pub subject_id   : u16,
-    pub classroom_id : u16
-}
-pub struct Class{
-    pub class_id   : u16,
-    pub class_name : String
-}
-pub struct LessonHour{
-    pub lesson_num : u8,
-    pub start_time : u16,
-    pub end_time   : u16,
-}
-pub struct Teacher{
-    pub teacher_id : u16,
-    pub first_name : String,
-    pub last_name  : String
-}
-pub struct Classroom{
-    pub classroom_id   : u16,
-    pub classroom_name : String
-}
-pub struct Subject{
-    pub subject_id   : u16,
-    pub subject_name : String
-}
-pub struct Duty{
-    pub break_num   : u8,
-    pub teacher_id  : u16,
-    pub break_place : String,
-    pub week_day    : u8
-}
-pub struct BreakHours{
-    pub break_num  : u8,
-    pub start_time : u16,
-    pub end_time   : u16
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Language{
-    #[default]
-    Unspecified,
     Polish,
+    #[default]
     English
 }
 
@@ -248,30 +142,52 @@ impl Language{
             Self::English => {
                 return english.to_string()
             }
-            Self::Unspecified => {
-                polish.to_string()
-            }
         }
     }
 }
 
-pub enum Orb<T, Y>{
-    Data(T),
-    Alt(Y)
+pub enum Weekday{
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday,
+    Unknown
 }
 
-#[allow(warnings)]
-pub trait msatToString{
-    fn msat_to_string(&self) -> String;
-}
-
-type Hours = (u16, u16);
-impl msatToString for Hours{
-    fn msat_to_string(&self) -> String {
-        let (start_time, end_time) = self;
-        let (stime_str , endt_str) = (format_lessonh(*start_time), format_lessonh(*end_time));
-        return format!("{} - {}", stime_str, endt_str);
+impl Weekday{
+    fn now() -> Weekday{
+        Weekday::from(chrono::Local::now().weekday() as u8)
     }
+    fn to_num(val: Weekday) -> u8{
+        return match val{
+            Weekday::Monday    => 1,
+            Weekday::Tuesday   => 2,
+            Weekday::Wednesday => 3,
+            Weekday::Thursday  => 4,
+            Weekday::Friday    => 5,
+            Weekday::Saturday  => 6,
+            Weekday::Sunday    => 7,
+            Weekday::Unknown   => 0
+        };
+    }
+}
+
+impl From<u8> for Weekday{
+    fn from(value : u8) -> Self{
+        return match value{
+            1 => Self::Monday,
+            2 => Self::Tuesday,
+            3 => Self::Wednesday,
+            4 => Self::Thursday,
+            5 => Self::Friday,
+            6 => Self::Saturday,
+            7 => Self::Sunday,
+            _ => Self::Unknown
+        };
+    } 
 }
 
 #[derive(Deserialize, Serialize, Default, Clone, Copy)]
@@ -314,19 +230,16 @@ pub struct JoinedDuty{
     pub place         : Option<String>,
     pub break_num     : JoinedHour,
 }
+#[derive(Deserialize, Serialize, Default)]
+pub struct JoinedDutyRaw{
+    pub weekday       : Option<u8> ,
+    pub semester      : Option<u8> ,
+    pub academic_year : Option<u8> ,
+    pub teacher_id    : Option<u16>,
+    pub place_id      : Option<u16>,
+    pub break_num     : JoinedHour
+}
 
-pub trait ResultToOption<T>{
-    fn conv(&self) -> Option<T>;
-}
-impl<T, E> ResultToOption<T> for Result<T, E>
-where T: Clone{
-    fn conv(&self) -> Option<T> {
-        match &self{
-            Ok(v) => Some(v.clone()),
-            Err(_) => None
-        }
-    }
-}
 pub trait MultiwordToSingleword{
     fn to_single(&self, separator: char) -> String;
 }

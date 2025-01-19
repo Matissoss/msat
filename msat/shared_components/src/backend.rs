@@ -147,10 +147,10 @@ impl Request{
 
 // Functions
 
-pub async fn get_config() -> Option<Configuration>{
+pub async fn get_config() -> Option<Config>{
     return match fs::read_to_string("data/config.toml").await{
         Ok(v) => {
-            match toml::from_str::<Configuration>(&v){
+            match toml::from_str::<Config>(&v){
                 Ok(conf) => Some(conf),
                 Err(_)   => None
             }
@@ -169,7 +169,7 @@ pub async fn get_config() -> Option<Configuration>{
 pub async fn get_password() -> Option<String>{
     return match fs::read_to_string("config.toml").await{
         Ok(v) => {
-            match toml::from_str::<Configuration>(&v){
+            match toml::from_str::<Config>(&v){
                 Ok(conf) => {
                     if conf.password == ""{
                         None
@@ -346,14 +346,14 @@ pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> R
                         let iter = stmt.query_map([], |row| {
                             Ok(
                                 JoinedLessonRaw{
-                                    weekday       : row.get(0).conv(),
-                                    class         : row.get(1).conv(),
-                                    classroom     : row.get(2).conv(),
-                                    teacher       : row.get(3).conv(),
-                                    subject       : row.get(4).conv(),
-                                    lessonh       : row.get(5).conv(),
-                                    semester      : row.get(6).conv(),
-                                    academic_year : row.get(7).conv()
+                                    weekday       : row.get(0).ok(),
+                                    class         : row.get(1).ok(),
+                                    classroom     : row.get(2).ok(),
+                                    teacher       : row.get(3).ok(),
+                                    subject       : row.get(4).ok(),
+                                    lessonh       : row.get(5).ok(),
+                                    semester      : row.get(6).ok(),
+                                    academic_year : row.get(7).ok()
                                 }
                             )
                         });
@@ -488,8 +488,8 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                 let mut stmt = db.prepare("SELECT * FROM Classes WHERE class_id = ?1")?;
                 let (id, name) = stmt.query_row([class_id], |row| {
                     Ok((
-                        row.get::<usize, u16>(0).conv(), 
-                        row.get::<usize, String>(1).conv()
+                        row.get::<usize, u16>(0).ok(), 
+                        row.get::<usize, String>(1).ok()
                     ))
                 })?;
                 already_visited_class.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
@@ -504,8 +504,8 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                 let mut stmt = db.prepare("SELECT * FROM Classrooms WHERE classroom_id = ?1")?;
                 let (id, name) = stmt.query_row([classroom_id], |row| {
                     Ok((
-                        row.get::<usize, u16>(0).conv(), 
-                        row.get::<usize, String>(1).conv()
+                        row.get::<usize, u16>(0).ok(), 
+                        row.get::<usize, String>(1).ok()
                     ))
                 })?;
                 already_visited_classroom.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
@@ -520,8 +520,8 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                 let mut stmt = db.prepare("SELECT * FROM Teachers WHERE teacher_id = ?1")?;
                 let (id, name) = stmt.query_row([teacher_id], |row| {
                     Ok((
-                        row.get::<usize, u16>(0).conv(), 
-                        row.get::<usize, String>(1).conv()
+                        row.get::<usize, u16>(0).ok(), 
+                        row.get::<usize, String>(1).ok()
                     ))
                 })?;
                 already_visited_teacher.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
@@ -536,8 +536,8 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                 let mut stmt = db.prepare("SELECT * FROM Subjects WHERE subject_id = ?1")?;
                 let (id, name) = stmt.query_row([subject_id], |row| {
                     Ok((
-                        row.get::<usize, u16>(0).conv(), 
-                        row.get::<usize, String>(1).conv()
+                        row.get::<usize, u16>(0).ok(), 
+                        row.get::<usize, String>(1).ok()
                     ))
                 })?;
                 already_visited_subject.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
@@ -552,11 +552,11 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                 let mut stmt = db.prepare("SELECT * FROM LessonHours WHERE lesson_hour = ?1")?;
                 let (id, start_hour, start_minute, end_hour, end_minute) = stmt.query_row([lessonh], |row| {
                     Ok((
-                        row.get::<usize, u16>(0).conv(), 
-                        row.get::<usize, u8>(1).conv(),
-                        row.get::<usize, u8>(1).conv(),
-                        row.get::<usize, u8>(1).conv(),
-                        row.get::<usize, u8>(1).conv()
+                        row.get::<usize, u16>(0).ok(), 
+                        row.get::<usize, u8>(1).ok(),
+                        row.get::<usize, u8>(1).ok(),
+                        row.get::<usize, u8>(1).ok(),
+                        row.get::<usize, u8>(1).ok()
                     ))
                 })?;
                 let current = JoinedHour{
@@ -578,8 +578,8 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                 let mut stmt = db.prepare("SELECT * FROM Semesters WHERE semester_num = ?1")?;
                 let (id, name) = stmt.query_row([semester], |row| {
                     Ok((
-                        row.get::<usize, u8>(0).conv(), 
-                        row.get::<usize, String>(1).conv()
+                        row.get::<usize, u8>(0).ok(), 
+                        row.get::<usize, String>(1).ok()
                     ))
                 })?;
                 already_visited_semester.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
@@ -594,8 +594,8 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                 let mut stmt = db.prepare("SELECT * FROM Years WHERE academic_year = ?1")?;
                 let (id, name) = stmt.query_row([year], |row| {
                     Ok((
-                        row.get::<usize, u8>(0).conv(), 
-                        row.get::<usize, String>(1).conv()
+                        row.get::<usize, u8>(0).ok(), 
+                        row.get::<usize, String>(1).ok()
                     ))
                 })?;
                 already_visited_year.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
@@ -636,17 +636,17 @@ pub fn get_lessons_by_teacher_id(teacher_id: u16, db: &rusqlite::Connection) -> 
     let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_hour.to_string(), now_minute.to_string(), now_iso8601], |row|{
         Ok(
             JoinedLesson{
-                weekday   : row.get(0).conv(),
+                weekday   : row.get(0).ok(),
                 teacher   : None,
-                class     : row.get(1).conv(),
-                classroom : row.get(2).conv(),
-                subject   : row.get(3).conv(),
+                class     : row.get(1).ok(),
+                classroom : row.get(2).ok(),
+                subject   : row.get(3).ok(),
                 lessonh   : JoinedHour{
                     lesson_hour: None,
-                    start_hour   : row.get(4).conv(),
-                    start_minute : row.get(5).conv(),
-                    end_hour     : row.get(6).conv(),
-                    end_minutes  : row.get(7).conv()
+                    start_hour   : row.get(4).ok(),
+                    start_minute : row.get(5).ok(),
+                    end_hour     : row.get(6).ok(),
+                    end_minutes  : row.get(7).ok()
                 },
                 academic_year : None,
                 semester      : None
@@ -690,17 +690,17 @@ pub fn get_lessons_by_class_id(class_id: u16, db: &rusqlite::Connection) -> Resu
     let iter = stmt.query_map([class_id.to_string(), weekd.to_string(), now_hour.to_string(), now_minute.to_string(), now_iso8601], |row|{
         Ok(
             JoinedLesson{
-                weekday   : row.get(0).conv(),
-                teacher   : row.get(1).conv(),
+                weekday   : row.get(0).ok(),
+                teacher   : row.get(1).ok(),
                 class     : None,
-                classroom : row.get(2).conv(),
-                subject   : row.get(3).conv(),
+                classroom : row.get(2).ok(),
+                subject   : row.get(3).ok(),
                 lessonh   : JoinedHour{
                     lesson_hour: None,
-                    start_hour   : row.get(4).conv(),
-                    start_minute : row.get(5).conv(),
-                    end_hour     : row.get(6).conv(),
-                    end_minutes  : row.get(7).conv()
+                    start_hour   : row.get(4).ok(),
+                    start_minute : row.get(5).ok(),
+                    end_hour     : row.get(6).ok(),
+                    end_minutes  : row.get(7).ok()
                 },
                 academic_year : None,
                 semester      : None
@@ -741,17 +741,17 @@ pub fn get_duties_for_teacher(teacher_id: u16, db: &rusqlite::Connection) -> Res
     let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_hour.to_string(), now_minute.to_string(), now_iso8601], |row| {
         Ok(
             JoinedDuty{
-                weekday       : row.get(0).conv(),
-                place         : row.get(1).conv(),
+                weekday       : row.get(0).ok(),
+                place         : row.get(1).ok(),
                 teacher       : None,
                 semester      : None,
                 academic_year : None,
                 break_num: JoinedHour{
                     lesson_hour  : None,
-                    start_hour   : row.get(2).conv(),
-                    start_minute : row.get(3).conv(),
-                    end_hour     : row.get(4).conv(),
-                    end_minutes  : row.get(5).conv()
+                    start_hour   : row.get(2).ok(),
+                    start_minute : row.get(3).ok(),
+                    end_hour     : row.get(4).ok(),
+                    end_minutes  : row.get(5).ok()
                 }
             }
         )

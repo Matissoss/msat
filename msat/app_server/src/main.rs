@@ -1,9 +1,13 @@
-///================================
-///             main.rs
-///  This file as well as others
-///  were made by MateusDev and 
-///  licensed under X11 (MIT) LICENSE
-///================================
+//=================================
+//           app_server
+// This part is responsible
+// for handling client requests.
+//=================================
+//            Credits
+// This file was coded by MateusDev
+// and is licensed under 
+// X11 (MIT) License.
+//=================================
 
 // Global Imports
 use std::{ 
@@ -15,23 +19,38 @@ use std::{
     }, 
     sync::Arc
 };
-use tokio::sync::{
-    Mutex, 
-    Semaphore
+use tokio::{
+    sync::{
+        Mutex, 
+        Semaphore
+    },
+    time::{
+        self,
+        Duration
+    }
 };
 use rusqlite::Connection as SQLite;
 use colored::Colorize;
+
 // Local Imports
 
 use shared_components::{
-    backend::{self, get_lessons_by_teacher_id, manipulate_database, MainpulationType, ParsedRequest, Request, RequestType}, consts::*, types::*, utils, visual
+    backend::{
+        self, get_config, get_lessons_by_teacher_id, manipulate_database, MainpulationType, ParsedRequest, Request, RequestType
+    }, 
+    consts::*, 
+    types::*, 
+    utils, 
+    visual
 };
+
+use shared_components::types::ServerError;
 
 // Entry point
 #[tokio::main]
 async fn main() {
     visual::main();
-    if let Ok(_) = std::process::Command::new(CLEAR).status(){
+    if std::process::Command::new(CLEAR).status().is_err(){
     };
     
     let db = match backend::init_db(){
@@ -43,26 +62,11 @@ async fn main() {
             std::process::exit(-1);
         }
     };
-    let shared_config = Arc::new(match backend::get_config().await{
-        Some(v) => Some(v),
-        None => {
-            visual::info("Config was not found! Create configuration file!");
-            None
-        }
-    });
-    let (ip_address, port, max_connections, max_timeout) = match &*shared_config{
-        Some(v) => {
-            if let (Some(ip), port, max, maxt) 
-                = (v.application_server.tcp_ip, v.application_server.port,v.application_server.max_connections,
-                    v.application_server.max_timeout_seconds){
-                (Some(ip), port, max, Arc::new(maxt.into()))
-            }
-            else{
-                (None, 8888, 100, Arc::new(6))
-    }
-        }
-        None => {(None, 8888, 100, Arc::new(6))}
+    let (ip, port, max_connections, max_timeout) = match get_config().await{
+        Some(v) => (v.application_server.ip, v.application_server.port, v.application_server.max_connections, v.application_server.max_timeout_seconds),
+        None => (*LOCAL_IP, 8888, 100, 10)
     };
+
     let limit = Arc::new(Semaphore::new(max_connections.into()));
     let public_ip = match utils::get_public_ip(){
         Ok(ip) => ip,
@@ -74,10 +78,10 @@ async fn main() {
             visual::info(&format!("This Code should be entered by clients: {}", invite_code.yellow().on_black().bold()));
         }
         else{
-            visual::info(&format!("This is your public ip: {}", public_ip.to_string()));
+            visual::info(&format!("This is your public ip: {}", public_ip));
             visual::info(&format!("This Code should be entered by clients: {}", invite_code));
         }
-        if let Err(error) = tokio::fs::write("data/invite.code", invite_code).await{
+        if let Err(error) = tokio::fs::write("invite.code", invite_code).await{
             visual::error(Some(error), "Error occured while saving to file 'data/invite.code'");
         }
         else{
@@ -86,25 +90,20 @@ async fn main() {
     }
 
     let listener : TcpListener = match TcpListener::bind
-        (format!("{}:{}", ip_address.unwrap_or(*LOCAL_IP), port))
+        (format!("{}:{}", ip, port))
         {
             Ok(v) => v,
             Err(e) => 
             {
-                if let Some(v) = ip_address {
-                    visual::critical_error(Some(e), &format!("Error connecting to ip_address {}", v));
-                }
-                else{
-                    visual::critical_error(Some(e), "data/config.toml doesn't contain any IP Address, like: `127.0.0.1`;");
-                }
+                visual::critical_error(Some(e), &format!("Error connecting to ip_address {}", ip));
             }
     };
     
 
-    visual::debug(&format!("Listening on {}:8888", ip_address.unwrap_or(*LOCAL_IP)));
+    visual::debug(&format!("Listening on {}:8888", ip));
     
     // Start of actual program
-    start_listening(listener, db, limit, max_timeout).await;
+    start_listening(listener, db, limit, Arc::new(max_timeout.into())).await;
     
 
     visual::debug("Shutdown?");
@@ -124,52 +123,53 @@ async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>, limit: A
                 };
                 let cloned_timeout = Arc::clone(&timeout);
                 let cloned_limit = Arc::clone(&limit);
-                if let Ok(_) = tokio::time::timeout(std::time::Duration::from_secs(*cloned_timeout), cloned_limit.acquire_owned()).await{
+                if let Ok(Ok(perm)) = time::timeout(Duration::from_secs(*cloned_timeout), cloned_limit.acquire_owned()).await{
                     let shared_db = Arc::clone(&db);
                     tokio::spawn(
                         async move{
                             if let Err(error) = handle_connection(stream, shared_db).await{
-                                visual::error(Some(error), "Error occured while handling exception");
+                                visual::error(Some(error.to_response()), "Error occured while handling exception");
                             }
                             else{
                                 visual::success(&format!("Successfully handled request from TCP Addr: {}:{}", ip_address, port))
                             };
                         }
                     );
+                    drop(perm);
                 }
             }
             else{
-                println!("{} TCPStream is None", ERROR);
+                visual::error::<u8>(None, "TCPStream is None");
             }
         }
     }
 }
 
-async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Result<(), ConnectionError>{
+async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Result<(), ServerError>{
     let mut data_sent = [0u8; 2048];
     let len = if let Ok(len) = stream.read(&mut data_sent){
         len
     }
     else{
-        return Err(ConnectionError::CannotRead);
+        return Err(ServerError::ReadRequestError);
     };
 
-    if let Ok(request) = Request::from_str(&String::from_utf8_lossy(&data_sent[..len]).to_string()).parse(){
+    if let Ok(request) = Request::from_str(String::from_utf8_lossy(&data_sent[..len]).as_ref()).parse(){
         let response = match get_response(request, db).await{
             Ok(v) => v,
-            Err(e) => RequestError::to_response(e)
+            Err(err) => return Err(err)
         };
-        if let Err(_) = stream.write_all(response.as_bytes()){
-            return Err(ConnectionError::WritingError);
+        if stream.write_all(response.as_bytes()).is_err(){
+            return Err(ServerError::WriteRequestError);
         }
         else{
             visual::success("Handled Request");
         }
     }
-    return Ok(());
+    Ok(())
 }
 
-async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, RequestError>{
+async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> Result<String, ServerError>{
     let args = &parsed_request.args;
     match parsed_request.req_type{
         RequestType::GET => {
@@ -195,14 +195,20 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    eprintln!("{error}");
                                     if error == rusqlite::Error::QueryReturnedNoRows{
                                         return Ok("msat/204-No-Content".to_string());
                                     }
-                                    return Err(RequestError::DatabaseError);
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseArgError { args: [class_id, weekday, lesson_hour, semester, academic_year].iter().map(|s| s.to_string()).collect()});
+                        }
+                    }
+                    else {
+                        return Err(ServerError::ArgsMissing { 
+                            expected: ["class_id", "weekday", "lesson_hour", "semester", "academic_year"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 2 => {
@@ -227,46 +233,67 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                                     if error == rusqlite::Error::QueryReturnedNoRows{
                                         return Ok("msat/200-OK&has_break=false".to_string());
                                     }
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseArgError { args: [weekd_str, break_num_str, teacher_str, semester_str, year_str].iter().map(|s| s.to_string()).collect() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["weekday", "break_num", "teacher_id", "semester", "academic_year"]
+                            .iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 3 => {
                     if let Some(teacherid_str) = args.get("teacher_id"){
                         if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
-                            if let Ok(vec) = get_lessons_by_teacher_id(teacher_id, &*db.lock().await){
-                                let mut to_return = String::new();
-                                to_return.push_str("msat/200-OK");
-                                let mut amount = 0;
-                                for lesson in vec{
-                                    if let Some(lessonh) = lesson.lessonh.lesson_hour{
-
-                                        if amount < lessonh{
-                                            amount = lessonh;
-                                        }
-
-                                        if let Some(class_id) = lesson.class{
-                                            to_return.push_str(&format!("&class{}={}", lessonh, class_id.to_single('_')));
-                                        }
-                                        if let Some(classroom_id) = lesson.classroom{
-                                            to_return.push_str(&format!("&classroom{}={}", lessonh, classroom_id.to_single('_')));
-                                        }
-                                        if let Some(subject) = lesson.subject{
-                                            to_return.push_str(&format!("&subject{}={}", lessonh, subject.to_single('_')));
-                                        }
-                                        if let (Some(start_hour), Some(start_minute)) = (lesson.lessonh.start_hour, lesson.lessonh.start_minute){
-                                            to_return.push_str(&format!("&start_date{}={:02}:{:02}", lessonh, start_hour, start_minute));
-                                        }
-                                        if let (Some(end_hour), Some(end_minute)) = (lesson.lessonh.end_hour, lesson.lessonh.end_minutes){
-                                            to_return.push_str(&format!("&end_date{}={:02}:{:02}", lessonh, end_hour, end_minute));
+                            match get_lessons_by_teacher_id(teacher_id, &*db.lock().await){
+                                Ok(vec) => {
+                                    let mut to_return = String::new();
+                                    to_return.push_str("msat/200-OK");
+                                    let mut amount = 0;
+                                    for lesson in vec{
+                                        if let Some(lessonh) = lesson.lessonh.lesson_hour{
+                                            if amount < lessonh{
+                                                amount = lessonh;
+                                            }
+                                            if let Some(class_id) = lesson.class{
+                                                to_return.push_str(&format!("&class{}={}", lessonh, class_id.to_single('_')));
+                                            }
+                                            if let Some(classroom_id) = lesson.classroom{
+                                                to_return.push_str(&format!("&classroom{}={}", lessonh, classroom_id.to_single('_')));
+                                            }
+                                            if let Some(subject) = lesson.subject{
+                                                to_return.push_str(&format!("&subject{}={}", lessonh, subject.to_single('_')));
+                                            }
+                                            if let (Some(start_hour), Some(start_minute)) = (lesson.lessonh.start_hour, lesson.lessonh.start_minute){
+                                                to_return.push_str(&format!("&start_date{}={:02}:{:02}", lessonh, start_hour, start_minute));
+                                            }
+                                            if let (Some(end_hour), Some(end_minute)) = (lesson.lessonh.end_hour, lesson.lessonh.end_minutes){
+                                                to_return.push_str(&format!("&end_date{}={:02}:{:02}", lessonh, end_hour, end_minute));
+                                            }
                                         }
                                     }
+                                    to_return.push_str(&format!("&AMOUNT={}",amount));
+                                    return Ok(to_return);
                                 }
-                                to_return.push_str(&format!("&AMOUNT={}",amount));
-                                return Ok(to_return);
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return Ok("msat/204-No-Content".to_string());
+                                    }
+                                    return Err(ServerError::DatabaseError(error));
+                                }
                             }
+
                         }
+                        else{
+                            return Err(ServerError::ParseIntError { arg: teacherid_str.to_string() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["teacher_id"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 _ => {}
@@ -276,7 +303,8 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
             match parsed_request.req_numb{
                 // Lesson
                 1 => {
-                    if let (Some(weekday_str), Some(classid_str), Some(classroomid_str), Some(teacherid_str), Some(subjectid_str), Some(semester_str),
+                    if let (Some(weekday_str), Some(classid_str), Some(classroomid_str), 
+                        Some(teacherid_str), Some(subjectid_str), Some(semester_str),
                         Some(academicyear_str), Some(lessonhour_str)) = 
                         (args.get("weekday"), args.get("class_id"), args.get("classroom_id"), args.get("teacher_id"), 
                          args.get("subject_id"), args.get("semester"), args.get("academic_year"), args.get("lesson_hour"))
@@ -293,11 +321,23 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
-                                    return Err(RequestError::DatabaseError);
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { 
+                            expected: [
+                            "weekday", 
+                            "class_id", 
+                            "classroom_id", 
+                            "teacher_id", 
+                            "subject_id", 
+                            "semester", 
+                            "academic_year", 
+                            "lesson_hour"].iter().map(|s| s.to_string()).collect() 
+                        });
                     }
                 }
                 // Year
@@ -311,11 +351,16 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
-                                    return Err(RequestError::DatabaseError)
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             };
                         }
+                        else{
+                            return Err(ServerError::ParseIntError { arg: academicyear_str.to_string() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["academic_year", "year_name", "start_date", "end_date"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // Duty
@@ -334,11 +379,19 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
-                                    return Err(RequestError::DatabaseError);
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseArgError { 
+                                args: [weekday_str, breaknum_str, teacherid_str, semester_str, academicyear_str, placeid_str].iter().map(|s| s.to_string()).collect() 
+                            });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["weekday", "break_num", "teacher_id", "semester", "academic_year", "place_id"]
+                            .iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // Break
@@ -356,11 +409,18 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
-                                    return Err(RequestError::DatabaseError);
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseArgError { args: [breaknum_str, starthour_str, startminute_str, endhour_str, endminute_str]
+                                .iter().map(|s| s.to_string()).collect() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["break_num", "start_hour", "start_minute", "end_hour", "end_minute"]
+                            .iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // Semester
@@ -375,11 +435,16 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(err) => {
-                                    visual::error(Some(err), "Database Error");
-                                    return Err(RequestError::DatabaseError);
+                                    return Err(ServerError::DatabaseError(err));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseIntError { arg: semester_str.to_string() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["semester", "semester_name", "start_date", "end_date"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // LessonHour 
@@ -397,11 +462,18 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
-                                    return Err(RequestError::DatabaseError);
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseArgError { args: [lessonnum_str, starthour_str, startminute_str, endhour_str, endminute_str]
+                                .iter().map(|s| s.to_string()).collect() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["lesson_num", "start_hour", "start_minute", "end_hour", "end_minute"]
+                            .iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // Teacher
@@ -413,10 +485,16 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseIntError { arg: teacherid_str.to_string() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["teacher_id", "teacher_name"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // Class
@@ -428,10 +506,13 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["class_id", "class_name"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // Classroom
@@ -443,10 +524,16 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseIntError { arg: teacherid_str.to_string() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["classroom_id", "classroom_name"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // Subject
@@ -458,10 +545,16 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseIntError { arg: teacherid_str.to_string() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["subject_id", "subject_name"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 // Corridors
@@ -473,10 +566,16 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             {
                                 Ok(v) => return Ok(v),
                                 Err(error) => {
-                                    visual::error(Some(error), "Database Error");
+                                    return Err(ServerError::DatabaseError(error));
                                 }
                             }
                         }
+                        else{
+                            return Err(ServerError::ParseIntError { arg: teacherid_str.to_string() });
+                        }
+                    }
+                    else{
+                        return Err(ServerError::ArgsMissing { expected: ["place_id", "place_name"].iter().map(|s| s.to_string()).collect() });
                     }
                 }
                 _ => {}
@@ -484,5 +583,5 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
         }
         _ => {}
     }
-    return Err(RequestError::UnknownRequestError);
+    Err(ServerError::UnknownRequest)
 }

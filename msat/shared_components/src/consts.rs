@@ -4,11 +4,12 @@
 use std::sync::LazyLock;
 use std::net::IpAddr;
 
-pub const INFO    : &str = "[  INFO  ]";
-pub const DEBUG   : &str = "[ DEBUG  ]";
-pub const ERROR   : &str = "[ ERROR  ]";
-pub const SUCCESS : &str = "[   OK   ]";
+pub const INFO    : &str = "[  INFO  ] ";
+pub const DEBUG   : &str = "[  DEBUG  ]";
+pub const ERROR   : &str = "[  ERROR  ]";
+pub const SUCCESS : &str = "[   OK   ] ";
 pub const VERSION : u16  = 50;
+pub const SUPPORTED_VERSIONS : [u16; 1] = [50];
 pub const CLEAR   : &str = 
     if cfg!(windows)
     {
