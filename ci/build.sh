@@ -11,7 +11,7 @@ _web="web"
 
 echo "COMPILATION VARIABLES"
 echo "build directory: " $_build
-echo "global targets : " $_rust_target
+echo "global targets : " ${_rust_target[@]}
 echo "export targets : " $_export_target
 echo "http_server dir: " $_http_server
 echo "app_server dir : " $_app_server
@@ -60,27 +60,31 @@ globalbuild_msat() {
 # START
 rm -rf $_build
 
-echo "Do you want to perform global build or local build?"
-echo "[ 1 ] - global msat build"
-echo "[ 2 ] - local msat build"
+echo "Do you want to perform build using python or shell?"
+echo "[ 1 ] - [DONT USE] python build"
+echo "[ 2 ] - shell build"
 echo "[ x ] - abort"
 
 read input
 
 if [[ $input == "1" ]]; then
-	echo "Starting global build... this might take a while..."
-	globalbuild_msat
-	echo "Finished Building project"
-	echo "Release files can be found in directory:" ci/$_build/release
+	python3 build.py
 elif [[ $input == "2" ]]; then 
-	localbuild_msat
-	echo "Finished locally building project"
-	echo "File can be found in directory:" ci/$_local.tar.gz
-elif [[ $input == "x" ]]; then 
-	exit 0
-else
-	localbuild_msat
-	echo "Finished locally building project"
-	echo "File can be found in directory:" ci/$_local.tar.gz
-fi
+	echo "Choose build option"
+	echo "[ 1 ] - global msat build"
+	echo "[ 2 ] - local msat build"
+	echo "[ x ] - abort"
+	read input1
 
+	if [[ $input1 == "1" ]]; then
+		globalbuild_msat
+		echo "Release files can be found in directory:" ci/$_build/release
+	elif [[ $input == "2" ]]; then
+		localbuild_msat
+		echo "File can be found in directory:" ci/$_local.tar.gz
+	else
+		exit 0
+	fi
+else 
+	exit 0
+fi

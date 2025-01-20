@@ -33,6 +33,7 @@ use tokio::{
 use shared_components::{
     backend::{
         self, 
+        get_config, 
         get_duties_for_teacher, 
         get_lessons_by_class_id, 
         get_lessons_by_teacher_id, 
@@ -74,6 +75,7 @@ pub async fn init_httpserver() {
     };
     let limit = Arc::new(Semaphore::new(max_limit.into()));
     let final_address = format!("{}:{}", ip, port);
+    visual::debug(&final_address);
     let listener: TcpListener = match TcpListener::bind(final_address).await {
         Ok(v) => v,
         Err(_) => std::process::exit(-1),
@@ -85,29 +87,39 @@ pub async fn init_httpserver() {
                     let cloned_dbptr    = Arc::clone(&database);
                     let cloned_permit   = Arc::clone(&limit);
                     let cloned_timeout  = Arc::clone(&max_timeout);
+                    visual::debug("start operation");
                     if let Ok(Ok(perm)) = time::timeout(Duration::from_secs(*cloned_timeout), cloned_permit.acquire_owned()).await{
+                        visual::debug("got permission");
                         let lang = Arc::clone(&lang);
                         tokio::spawn(async move {
                             handle_connection(stream, cloned_dbptr, Arc::clone(&lang)).await;
                         });
                         drop(perm);
                     }
+                    else{
+                        visual::debug("didn't got permission");
+                    }
         }
     }
 }
 pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) {
-    let mut buffer : Vec<u8> = vec![];
+    visual::debug("start of processing");
+    let mut buffer : [u8; 2048] = [0u8; 2048];
     if let Ok(len) = stream.read(&mut buffer).await {
-        if len != 0 {
-            let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
-            if *DEBUG_MODE{
-                for l in request.lines(){
-                    if !l.is_empty()
-                    {
+        if len == 0 {
+        }
+        else{
+        visual::debug("start");
+        let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
+        visual::debug(&request);
+        if *DEBUG_MODE{
+            for l in request.lines(){
+                if !l.is_empty()
+                {
                         visual::debug(l);
-                    }
                 }
             }
+        }
             let lines = request
                 .lines()
                 .filter(|s| !s.is_empty())
@@ -129,6 +141,7 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                         // Weird rust_analyzer error
                         #[allow(warnings)]
                         if w == "/" || w.starts_with("/?lang"){
+                            visual::debug("./web/index.html");
                             file_path = "./web/index.html".to_string();
                         }
                         else {
@@ -172,13 +185,7 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                     if let Ok(string) = String::from_utf8(buf.clone()) {
                         if let Err(err) = 
                             stream.write_all(
-                                format!("HTTP/1.1 200 OK\r\n{}Content-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
-                                    if file_path.as_str() == "./web/index.html"{
-                                        "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'\r\n"
-                                    }
-                                    else{
-                                        ""
-                                    }, 
+                                format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
                                     string.len(), 
                                     f_type, 
                                     string
@@ -228,6 +235,15 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                 "<error><p>Serwer nie mógł przetworzyć zapytania</p></error>");
         }
     };
+    #[allow(warnings)]
+    if let (Some(pswd), Some(set_pswd)) = (parsed_request.args.get("password"), get_config().await.and_then(|s| Some(s.password))){
+        if pswd != &set_pswd || pswd.is_empty() && parsed_request.req_type != RequestType::Other("PAS".to_string()) && parsed_request.req_numb != 0{
+                return lang.english_or("<error><p>Bad password</p></error>", "<error><p>Złe hasło</p></error>")
+        }
+    }
+    else{
+        return lang.english_or("<error><p>Authentication Error</p></error>", "<error><p>Błąd autentyntykacji</p></error>")
+    }
 
     let args = parsed_request.args;
 
@@ -240,18 +256,104 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                         if let Ok(class) = class_id.parse::<u16>()
                         {
                             if let Ok(lessons) = get_lessons_by_class_id(class, &*db.lock().await){
-                                let mut unwrapped_lessons : BTreeMap<(String, u8, u16), (String, String, String)> = BTreeMap::new();
+                                type LessonData = (String, String, String, String, String);
+                                let mut unwrapped_lessons : BTreeMap<(u8, u16), LessonData> = 
+                                    BTreeMap::new();
                                 for lesson in lessons{
-                                    if let (Some(class), Some(teacher), Some(classroom), Some(subject), Some(lessonh), Some(weekd)) = 
-                                    (lesson.class, lesson.teacher, lesson.classroom, lesson.subject, lesson.lessonh.lesson_hour, 
-                                     lesson.weekday)
+                                    if let (Some(teacher), Some(classroom), Some(subject), Some(lessonh), Some(weekd), 
+                                        Some(start_hour), Some(start_minute), Some(end_hour), Some(end_minute)) = 
+                                    (lesson.teacher, lesson.classroom, lesson.subject, lesson.lessonh.lesson_hour, 
+                                     lesson.weekday, lesson.lessonh.start_hour, lesson.lessonh.start_minute, 
+                                     lesson.lessonh.end_hour, lesson.lessonh.start_minute)
                                     {
-                                        unwrapped_lessons.insert((class, weekd, lessonh), (subject, classroom, teacher));
+                                        unwrapped_lessons.insert(
+                                        (weekd, lessonh), 
+                                        (subject, classroom, teacher, 
+                                         format!("{:2}:{:2}", start_hour, start_minute), 
+                                         format!("{:2}:{:2}", end_hour, end_minute))
+                                        );
+                                    }
+                                }
+                                let mut current_weekd : u8 = 0;
+                                let mut to_return     : String = "<ltable>".to_string();
+                                
+                                for (weekd, lessonh) in unwrapped_lessons.keys(){
+                                    if &current_weekd != weekd{
+                                        if current_weekd != 0{
+                                            to_return.push_str("<wd>");
+                                        }
+                                        else{
+                                            to_return.push_str("</wd><wd>");
+                                        }
+                                        current_weekd = *weekd;
+                                    }
+                                    if let Some((subject, classroom, teacher, start, end)) = 
+                                        unwrapped_lessons.get(&(*weekd, *lessonh))
+                                    {
+                                        to_return.push_str(&format!("<les><p>{}</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p></les>", 
+                                                subject, classroom, teacher, start, end));
+                                    }
+                                }
+                                to_return.push_str("</ltable>");
+                                return to_return
+                            }
+                        }
+                    }
+                }
+                2 => {
+                    if let Some(teacher_str) = args.get("teacher_id")
+                    {
+                        if let Ok(teacher_id) = teacher_str.parse::<u16>()
+                        {
+                            if let Ok(duties) = get_duties_for_teacher(teacher_id, &*db.lock().await){
+                                let mut filtered : BTreeMap<u16, (String, String, String)> = BTreeMap::new();
+                                for d in duties{
+                                    if let (Some(place), Some(breakn), Some(starth), Some(startm), Some(endh), Some(endm)) = 
+                                    (d.place, d.break_num.lesson_hour, d.break_num.start_hour, d.break_num.start_minute, 
+                                     d.break_num.end_hour, d.break_num.end_minutes)
+                                    {
+                                        filtered.insert(breakn, (place, format!("{:2}:{:2}", starth, startm), format!("{:2}:{:2}", endh, endm)));
+                                    }
+                                }
+                                if filtered.is_empty(){
+                                    return lang.english_or("<p>You don't have duties today!</p>", "<p>Nie masz dzisiaj dyżuru!</p>");
+                                }
+                                let mut to_return = "<duties>".to_string();
+                                for breakn in filtered.keys(){
+                                    if let Some((place, start, end)) = filtered.get(breakn){
+                                        to_return.push_str(&format!("<entry><p>{}</p><p>{} - {}</p></entry>", place, start, end));
+                                    }
+                                }
+                                return to_return;
+                            }
+                        }
+                    }
+                }
+                3 => {
+                    if let Some(teacherid_str) = args.get("teacher_id"){
+                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
+                            if let Ok(lessons) = get_lessons_by_teacher_id(teacher_id, &*db.lock().await){
+                                type LessonData = (String, String, String, String);
+                                let mut unwrapped_lessons : BTreeMap<(String, u8, u16), LessonData> = 
+                                    BTreeMap::new();
+                                for lesson in lessons{
+                                    if let (Some(class), Some(classroom), Some(subject), Some(lessonh), Some(weekd), 
+                                        Some(start_hour), Some(start_minute), Some(end_hour), Some(end_minute)) = 
+                                    (lesson.class, lesson.classroom, lesson.subject, lesson.lessonh.lesson_hour, 
+                                     lesson.weekday, lesson.lessonh.start_hour, lesson.lessonh.start_minute, 
+                                     lesson.lessonh.end_hour, lesson.lessonh.start_minute)
+                                    {
+                                        unwrapped_lessons.insert(
+                                        (class, weekd, lessonh), 
+                                        (subject, classroom, 
+                                         format!("{:2}:{:2}", start_hour, start_minute), 
+                                         format!("{:2}:{:2}", end_hour, end_minute))
+                                        );
                                     }
                                 }
                                 let mut current_class : String = "".to_string();
                                 let mut current_weekd : u8 = 0;
-                                let mut to_return     : String = "".to_string();
+                                let mut to_return     : String = "<ltable>".to_string();
                                 
                                 for (class, weekd, lessonh) in unwrapped_lessons.keys(){
                                     if &current_class != class{
@@ -273,31 +375,15 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                         }
                                         current_weekd = *weekd;
                                     }
-                                    if let Some((subject, classroom, teacher)) = unwrapped_lessons.get(&(class.to_string(), *weekd, *lessonh)){
-                                        to_return.push_str(&format!("<les><p>{}</p><p>{}</p><p>{}</p></les>", subject, classroom, teacher));
+                                    if let Some((subject, classroom, start, end)) = 
+                                        unwrapped_lessons.get(&(class.to_string(), *weekd, *lessonh))
+                                    {
+                                        to_return.push_str(&format!("<les><p>{}</p><p>{}</p><p>{}</p><p>{}</p></les>", 
+                                                subject, classroom, start, end));
                                     }
                                 }
+                                to_return.push_str("</ltable>");
                                 return to_return
-                            }
-                        }
-                    }
-                }
-                2 => {
-                    if let Some(teacher_str) = args.get("teacher_id")
-                    {
-                        if let Ok(teacher_id) = teacher_str.parse::<u16>()
-                        {
-                            if let Ok(duties) = get_duties_for_teacher(teacher_id, &*db.lock().await){
-                                todo!()
-                            }
-                        }
-                    }
-                }
-                3 => {
-                    if let Some(teacherid_str) = args.get("teacher_id"){
-                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
-                            if let Ok(vec) = get_lessons_by_teacher_id(teacher_id, &*db.lock().await){
-                                todo!()
                             }
 
                         }
@@ -513,10 +599,11 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
         }
         RequestType::Other(val) => {
             #[allow(warnings)]
-            // weird rust_analyzer error
             match (val.as_str(), parsed_request.req_numb){
                 ("PAS", 0) => {
-                    // Password check
+                    if let (Some(password), Some(set_password)) = (&args.get("password"), get_config().await.and_then(|s| Some(s.password))){
+                        return (**password == set_password).to_string();
+                    }
                     todo!()
                 }
                 _ => {}
@@ -555,23 +642,6 @@ fn get_types(line: String) -> Vec<String> {
     types
 }
 
-#[allow(dead_code)]
-fn database_insert_success_msg(lang: &Language) -> String{
-    lang.english_or(
-        "<success><p>Successfully added data to database</p></success>", 
-        "<success><p>Pomyślnie dodano dane do bazy danych</p></success>"
-    )
-}
-
-#[allow(dead_code)]
-fn database_insert_error_msg(lang: &Language) -> String{
-    lang.english_or(
-    "<error><p>Error occured while adding data to database, check if request is correct and if it is, then ask admin</p></error>", 
-    "<error>
-    <p>Wystąpił błąd podczas dodawania danych do bazy danych, sprawdź czy zapytanie jest poprawne, 
-    a w ostateczności skontaktuj się z administratorem</p>
-    </error>")
-}
 pub fn weekd_to_string(lang: &Language, weekd: u8) -> String{
     match weekd{
         1 => lang.english_or("Monday"   ,"Poniedziałek" ),

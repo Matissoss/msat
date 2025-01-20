@@ -651,8 +651,6 @@ pub fn get_lessons_by_class_id(class_id: u16, db: &rusqlite::Connection) -> Resu
     let now         = chrono::Local::now();
     let now_iso8601 = now.to_rfc3339();
     let weekd       = now.weekday() as u8 + 1;
-    let now_hour    = now.hour  () & 0xFF;
-    let now_minute  = now.minute() & 0xFF;
     let query = 
     "SELECT 
     Lessons.weekday, Teachers.teacher_name, Classrooms.classroom_name, Subjects.subject_name,
@@ -666,13 +664,12 @@ pub fn get_lessons_by_class_id(class_id: u16, db: &rusqlite::Connection) -> Resu
     JOIN Years       ON Lessons.academic_year = Years.academic_year
     JOIN Semesters   ON Lessons.semester      = Semesters.semester
     WHERE Lessons.class_id          < ?1 AND Lessons.weekday         = ?2
-    AND   LessonHours.start_hour    < ?3 AND LessonHours.end_hour    > ?3
-    AND   LessonHours.start_minutes < ?4 AND LessonHours.end_minutes > ?4
-    AND   Semesters.start_date      < ?5 AND Semesters.end_date      > ?5
+    AND   Semesters.start_date      < ?3 AND Semesters.end_date      > ?3
+    AND   Years.start_date          < ?3 AND Years.end_date          > ?3
     ";
     let mut stmt = db.prepare(query)?;
 
-    let iter = stmt.query_map([class_id.to_string(), weekd.to_string(), now_hour.to_string(), now_minute.to_string(), now_iso8601], |row|{
+    let iter = stmt.query_map([class_id.to_string(), weekd.to_string(), now_iso8601], |row|{
         Ok(
             JoinedLesson{
                 weekday   : row.get(0).ok(),
@@ -703,11 +700,9 @@ pub fn get_duties_for_teacher(teacher_id: u16, db: &rusqlite::Connection) -> Res
     let now         = chrono::Local::now();
     let now_iso8601 = now.to_rfc3339();
     let weekd       = now.weekday() as u8 + 1;
-    let now_hour    = now.hour  () & 0xFF;
-    let now_minute  = now.minute() & 0xFF;
     let query = "
     SELECT 
-    Duties.weekday, Corridors.corridor_name, Breaks.start_hour, Breaks.start_minutes, Breaks.end_hour, Breaks.end_minutes
+    Corridors.corridor_name, Breaks.start_hour, Breaks.start_minutes, Breaks.end_hour, Breaks.end_minutes, Breaks.break_num
     FROM Duties
     JOIN Teachers  ON Duties.teacher_id    = Teachers.teacher_id
     JOIN Breaks    ON Duties.break_num     = Breaks.break_num
@@ -715,26 +710,24 @@ pub fn get_duties_for_teacher(teacher_id: u16, db: &rusqlite::Connection) -> Res
     JOIN Years     ON Duties.academic_year = Years.academic_year
     JOIN Semesters ON Duties.semester      = Semesters.semester
     WHERE Duties.teacher_id  = ?1 AND Duties.weekday     = ?2 
-    AND Breaks.start_hour    < ?3 AND Breaks.end_hour    > ?3 
-    AND Breaks.start_minutes < ?4 AND Breaks.end_minutes > ?4
-    AND Semesters.start_date < ?5 AND Semesters.end_date > ?5
-    AND Years.start_date     < ?5 AND Years.end_date     > ?5
+    AND Semesters.start_date < ?3 AND Semesters.end_date > ?3
+    AND Years.start_date     < ?3 AND Years.end_date     > ?3
     ";
     let mut stmt = db.prepare(query)?;
-    let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_hour.to_string(), now_minute.to_string(), now_iso8601], |row| {
+    let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_iso8601], |row| {
         Ok(
             JoinedDuty{
-                weekday       : row.get(0).ok(),
-                place         : row.get(1).ok(),
+                weekday       : None,
+                place         : row.get(0).ok(),
                 teacher       : None,
                 semester      : None,
                 academic_year : None,
                 break_num: JoinedHour{
-                    lesson_hour  : None,
-                    start_hour   : row.get(2).ok(),
-                    start_minute : row.get(3).ok(),
-                    end_hour     : row.get(4).ok(),
-                    end_minutes  : row.get(5).ok()
+                    lesson_hour  : row.get(5).ok(),
+                    start_hour   : row.get(1).ok(),
+                    start_minute : row.get(2).ok(),
+                    end_hour     : row.get(3).ok(),
+                    end_minutes  : row.get(4).ok()
                 }
             }
         )
