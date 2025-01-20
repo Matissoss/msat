@@ -30,7 +30,6 @@ localbuild_msat() {
 	mv target/release/$_app_server ../ci/$_local/$_app_server
 	cp -r $_http_server/$_web ..ci/$_local/$_web
 	cp -r docs/bundle ci/$_local/docs
-	cp ../ci/sample_data/config.toml ci/build/$_local/data/config.toml
 	tar -czvf ../ci/$_local.tar.gz ../ci/$_local
 }
 
@@ -53,7 +52,6 @@ globalbuild_msat() {
 		fi
 		cp -r $_http_server/$_web        ../ci/$_build/${_export_target[$index]}/$_web
 		cp -r ../docs/bundle             ../ci/$_build/${_export_target[$index]}/docs
-		cp ../ci/sample_data/config.toml ../ci/$_build/${_export_target[$index]}/data/config.toml
 		
 		tar -czvf ../ci/$_build/release/${_export_target[$index]}.tar.gz ../ci/$_build/${_export_target[$index]}
 	done

@@ -15,7 +15,7 @@ pub fn main(){
 }
 
 pub fn info(inf: &str){
-    if *consts::COLOR_ALLOWED == true{
+    if *consts::COLOR_ALLOWED{
         println!("{} {}", consts::INFO.bold().blue(), inf);
     }
     else{
@@ -23,7 +23,7 @@ pub fn info(inf: &str){
     }
 }
 pub fn success(inf: &str){
-    if *consts::COLOR_ALLOWED == true{
+    if *consts::COLOR_ALLOWED{
         println!("{} {}", consts::SUCCESS.bold().blue(), inf);
     }
     else{
@@ -40,7 +40,7 @@ where E: std::fmt::Display
 pub fn error<E>(err: Option<E>, inf: &str)
 where E: std::fmt::Display
 {
-    if *consts::COLOR_ALLOWED == true{
+    if *consts::COLOR_ALLOWED{
         match err{
             Some(err) => {
                 println!("{} {}: {}", consts::ERROR.red().bold(), inf, err);
@@ -63,7 +63,7 @@ where E: std::fmt::Display
 }
 
 pub fn debug(inf: &str){
-    if *consts::DEBUG_MODE == true{
+    if *consts::DEBUG_MODE{
         println!("{} {}", consts::DEBUG, inf);
     }
 }

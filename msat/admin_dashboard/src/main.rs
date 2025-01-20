@@ -6,21 +6,22 @@
 
 // Global imports
 use std::{
-    io::{
-        Read, 
-        Write
-    }, 
-    net::{
-        IpAddr, 
-        TcpListener, 
-        TcpStream
-    }, 
+    net::IpAddr,
+    collections::BTreeMap,
     sync::Arc
 };
 use tokio::{
     time::{
         self,
         Duration
+    },
+    net::{
+        TcpListener,
+        TcpStream,
+    },
+    io::{
+        AsyncReadExt,
+        AsyncWriteExt,
     },
     sync::{
         Mutex, 
@@ -31,7 +32,14 @@ use tokio::{
 // Local Imports 
 use shared_components::{
     backend::{
-        self, get_duties_for_teacher, get_lessons_by_class_id, get_lessons_by_teacher_id, manipulate_database, MainpulationType, Request, RequestType
+        self, 
+        get_duties_for_teacher, 
+        get_lessons_by_class_id, 
+        get_lessons_by_teacher_id, 
+        manipulate_database, 
+        MainpulationType, 
+        Request, 
+        RequestType
     }, 
     consts::*, 
     types::*, 
@@ -66,16 +74,14 @@ pub async fn init_httpserver() {
     };
     let limit = Arc::new(Semaphore::new(max_limit.into()));
     let final_address = format!("{}:{}", ip, port);
-    let listener: TcpListener = match TcpListener::bind(final_address) {
+    let listener: TcpListener = match TcpListener::bind(final_address).await {
         Ok(v) => v,
         Err(_) => std::process::exit(-1),
     };
     visual::success("Initialized HTTP Server");
     loop {
-        for s in listener.incoming() {
-            visual::debug("Request Incoming");
-            match s{
-            Ok(stream) => {
+        if let Ok((stream, socketaddr)) = listener.accept().await {
+            visual::debug(&format!("Request Incoming from {}:{}", socketaddr.ip(), socketaddr.port() ));
                     let cloned_dbptr    = Arc::clone(&database);
                     let cloned_permit   = Arc::clone(&limit);
                     let cloned_timeout  = Arc::clone(&max_timeout);
@@ -86,17 +92,12 @@ pub async fn init_httpserver() {
                         });
                         drop(perm);
                     }
-                }
-                Err(error) => {
-                    visual::error(Some(error), "TCPStream is Err");
-                }
-            }
         }
     }
 }
 pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) {
     let mut buffer : Vec<u8> = vec![];
-    if let Ok(len) = stream.read(&mut buffer) {
+    if let Ok(len) = stream.read(&mut buffer).await {
         if len != 0 {
             let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
             if *DEBUG_MODE{
@@ -140,7 +141,7 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                                 let response = handle_custom_request(&w, cloned_dbptr, cloned_lang).await;
                                 match stream.write_all(
                                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type: application/xml\r\n\r\n{}",
-                                        response.len(), response).as_bytes())
+                                        response.len(), response).as_bytes()).await
                                 {
                                     Ok(_) =>  visual::info("Handled Request"),
                                     Err(_) => visual::info("Couldn't Handle Request")
@@ -183,13 +184,13 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                                     string
                                 )
                                 .as_bytes()
-                            )
+                            ).await
                         {
                             visual::error(Some(err), "Handled request");
                         };
                     } 
                     else {
-                        not_found(&mut stream);
+                        not_found(&mut stream).await;
                     }
                 }
             } 
@@ -200,13 +201,13 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                     let http_header = 
                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\nConnection: keep-alive\r\n\r\n",
                                     buf.len(), f_type);
-                    if let Err(err) = stream.write_all(http_header.as_bytes()){
+                    if let Err(err) = stream.write_all(http_header.as_bytes()).await{
                         visual::error(Some(err), "Coudln't handle request");
                     };
                     let mut vector = Vec::with_capacity(buf.len() + http_header.len());
                     vector.extend_from_slice(buf.as_slice());
                     vector.extend_from_slice(http_header.as_bytes());
-                    if let Err(err) = stream.write_all(&buf){
+                    if let Err(err) = stream.write_all(&buf).await{
                         visual::error(Some(err), "Coudln't handle request");
                     };
                 } 
@@ -239,7 +240,44 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                         if let Ok(class) = class_id.parse::<u16>()
                         {
                             if let Ok(lessons) = get_lessons_by_class_id(class, &*db.lock().await){
-                                todo!()
+                                let mut unwrapped_lessons : BTreeMap<(String, u8, u16), (String, String, String)> = BTreeMap::new();
+                                for lesson in lessons{
+                                    if let (Some(class), Some(teacher), Some(classroom), Some(subject), Some(lessonh), Some(weekd)) = 
+                                    (lesson.class, lesson.teacher, lesson.classroom, lesson.subject, lesson.lessonh.lesson_hour, 
+                                     lesson.weekday)
+                                    {
+                                        unwrapped_lessons.insert((class, weekd, lessonh), (subject, classroom, teacher));
+                                    }
+                                }
+                                let mut current_class : String = "".to_string();
+                                let mut current_weekd : u8 = 0;
+                                let mut to_return     : String = "".to_string();
+                                
+                                for (class, weekd, lessonh) in unwrapped_lessons.keys(){
+                                    if &current_class != class{
+                                        current_weekd = 0;
+                                        if current_class.is_empty(){
+                                            to_return.push_str("<cla>");
+                                        }
+                                        else{
+                                            to_return.push_str("</cla><cla>");
+                                        }
+                                        current_class = class.clone();
+                                    }
+                                    if &current_weekd != weekd{
+                                        if current_weekd != 0{
+                                            to_return.push_str("<wd>");
+                                        }
+                                        else{
+                                            to_return.push_str("</wd><wd>");
+                                        }
+                                        current_weekd = *weekd;
+                                    }
+                                    if let Some((subject, classroom, teacher)) = unwrapped_lessons.get(&(class.to_string(), *weekd, *lessonh)){
+                                        to_return.push_str(&format!("<les><p>{}</p><p>{}</p><p>{}</p></les>", subject, classroom, teacher));
+                                    }
+                                }
+                                return to_return
                             }
                         }
                     }
@@ -494,8 +532,8 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
     
 }
 
-fn not_found(tcp: &mut TcpStream) {
-    if let Err(error) = tcp.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n<h1>404 - Not Found</h1>"){
+async fn not_found(tcp: &mut TcpStream) {
+    if let Err(error) = tcp.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n<h1>404 - Not Found</h1>").await{
         visual::error(Some(error), "Error Occured while sending 404 to client");
     }
     else{

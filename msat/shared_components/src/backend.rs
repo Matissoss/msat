@@ -40,11 +40,11 @@ struct Timestamp{
 impl Timestamp{
     fn can_proceed(&self, timeout_secs: u32) -> bool{
         let now : u32 = (self.hour as u32 * 60 * 60) + (self.minute as u32 * 60) + self.secs as u32;
-        return Timestamp::from(now + timeout_secs) < Timestamp::now()
+        Timestamp::from(now + timeout_secs) < Timestamp::now()
     }
     fn now() -> Timestamp{
         let now = &chrono::Local::now();
-        return Timestamp{
+        Timestamp{
             year  : (now.year  () & 0xFFFF).try_into().unwrap(),
             month : (now.month () & 0xFF).try_into().unwrap(),
             day   : (now.day   () & 0xFF).try_into().unwrap(),
@@ -59,7 +59,7 @@ impl From<u32> for Timestamp{
         let hour = (value / 3600) as u8;
         let minute = ((value % 3600) / 60) as u8;
         let second = (value % 60) as u8;
-        return Self{
+        Self{
             year: (chrono::Local::now().year() & 0xFFFF).try_into().unwrap(),
             month: (chrono::Local::now().month() & 0xFF).try_into().unwrap(),
             day: (chrono::Local::now().day() & 0xFF).try_into().unwrap(),
@@ -110,18 +110,18 @@ pub struct ParsedRequest{
 }
 
 impl Request{
+    #[allow(warnings)]
     pub fn from_str(request: &str) -> Request{
-        return Request{request: request.to_string()}
+        Request{request: request.to_string()}
     }
-    pub fn parse(&self) -> Result<ParsedRequest, ()>{
-        if self.request.starts_with(&format!("/?msat/{}", VERSION)) == false || 
-           self.request.starts_with(&format!("msat/{}" , VERSION)) == false
+    pub fn parse(&self) -> Result<ParsedRequest, ServerError>{
+        if !self.request.starts_with(&format!("/?msat/{}", VERSION)) || !self.request.starts_with(&format!("msat/{}" , VERSION))
         {
-            return Err(());
+            return Err(ServerError::UnknownRequest);
         }
         let vector = self.request.split('&').collect::<Vec<&str>>();
         if vector.len() == 1{
-            return Err(());
+            return Err(ServerError::UnknownRequest);
         }
         let mut to_return = ParsedRequest::default();
         let mut finhashmap = HashMap::new();
@@ -140,8 +140,7 @@ impl Request{
                 to_return.req_numb = numb.parse().unwrap_or(0);
             }
         }
-
-        return Err(());
+        Ok(to_return)
     }
 }
 
@@ -157,8 +156,10 @@ pub async fn get_config() -> Option<Config>{
         }
         Err(_) => {
             if let Ok(b) = fs::try_exists("data/config.toml").await{
-                if b == false{
-                    let _ = fs::write("data/config.toml", "").await;
+                if !b{
+                    if let Err(err) = fs::write("data/config.toml", toml::to_string(&Config::default()).unwrap_or_default()).await{
+                        visual::error(Some(err), "couldn't create config.toml file");
+                    }
                 }
             }
             None
@@ -171,7 +172,7 @@ pub async fn get_password() -> Option<String>{
         Ok(v) => {
             match toml::from_str::<Config>(&v){
                 Ok(conf) => {
-                    if conf.password == ""{
+                    if conf.password.is_empty(){
                         None
                     }
                     else{
@@ -304,7 +305,7 @@ pub fn init_db() -> Result<Database, SQLiteError>{
     db.execute_batch("PRAGMA journal_mode = WAL")?;
     db.busy_timeout(std::time::Duration::from_secs(4))?;
 
-    return Ok(db);
+    Ok(db)
 }
 
 pub fn get_year_and_semester(db: &rusqlite::Connection) -> Result<(u8, u8), rusqlite::Error>{
@@ -326,16 +327,15 @@ pub fn get_year_and_semester(db: &rusqlite::Connection) -> Result<(u8, u8), rusq
     let semester = stmt2.query_row([now.to_rfc3339()], |row|{
         Ok(row.get::<usize, u8>(0).unwrap_or_default())
     })?;
-    return Ok((year, semester));
+    Ok((year, semester))
 }
 
 /// STATIC
 pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> Result<Vec<JoinedLessonRaw>, ()>{
     if Timestamp::now().can_proceed(TIMEOUT){
-        if let Ok(permit) = tokio::time::timeout
+        if let Ok(Ok(permit)) = tokio::time::timeout
         (std::time::Duration::from_secs(5), Arc::clone(&GLOBAL_STATIC_SEMAPHORE).acquire_owned()).await
         {
-            if let Ok(perm) = permit{
                 // GET all data from Lessons table and take 'snapshot'
                 let query = 
                 "
@@ -362,19 +362,17 @@ pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> R
                             let mut largest_class = 0;
                             let mut largest_lessonh = 0;
                             let mut largest_weekd = 0;
-                            for raw_lesson in ok_iter{
-                                if let Ok(ok_raw_lesson) = raw_lesson{
-                                    if largest_class < ok_raw_lesson.class.unwrap_or_default(){
-                                        largest_class = ok_raw_lesson.class.unwrap_or_default();
-                                    }
-                                    if largest_lessonh < ok_raw_lesson.lessonh.unwrap_or_default(){
-                                        largest_lessonh = ok_raw_lesson.lessonh.unwrap_or_default();
-                                    }
-                                    if largest_weekd < ok_raw_lesson.weekday.unwrap_or_default(){
-                                        largest_weekd = ok_raw_lesson.weekday.unwrap_or_default();
-                                    }
-                                    to_return.push(ok_raw_lesson);
+                            for raw_lesson in ok_iter.flatten(){
+                                if largest_class < raw_lesson.class.unwrap_or_default(){
+                                    largest_class = raw_lesson.class.unwrap_or_default();
                                 }
+                                if largest_lessonh < raw_lesson.lessonh.unwrap_or_default(){
+                                    largest_lessonh = raw_lesson.lessonh.unwrap_or_default();
+                                }
+                                if largest_weekd < raw_lesson.weekday.unwrap_or_default(){
+                                    largest_weekd = raw_lesson.weekday.unwrap_or_default();
+                                }
+                                to_return.push(raw_lesson);
                             }
                             *LESSONHOURS.lock().await = largest_lessonh;
                             *WEEKDAY.lock().await = largest_weekd;
@@ -382,9 +380,8 @@ pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> R
                             match tokio::fs::try_exists("data/static").await{
                                 Ok(true) => {}
                                 Ok(false)|Err(_) => {
-                                match tokio::fs::create_dir_all("data/static").await{
-                                        Ok(_)  => {}
-                                        Err(_) => {}
+                                    if let Err(error) = tokio::fs::create_dir_all("data/static").await{
+                                        visual::error(Some(error), "error occured while creating data/static directory");
                                     };
                                 }
                             }
@@ -410,21 +407,20 @@ pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> R
                                 }
                             }
 
-                            drop(perm);
+                            drop(permit);
                             return Ok(to_return);
                         }
                         else{
-                            return static_old_table(&*db).await;
+                            return static_old_table(db).await;
                         }
                     }
                     Err(_) => {
-                        return static_old_table(&*db).await;
+                        return static_old_table(db).await;
                     }
                 }
-            }
         }
     }
-    return static_old_table(&*db).await;
+    return static_old_table(db).await;
 }
 /// STATIC
 pub async fn static_old_table(db: &rusqlite::Connection) -> Result<Vec<JoinedLessonRaw>, ()>{
@@ -437,16 +433,13 @@ pub async fn static_old_table(db: &rusqlite::Connection) -> Result<Vec<JoinedLes
     for lc in 0..*largest_class{
         for lw in 0..*largest_weekd{
             for lh in 0..*largest_lessonh{
-                match tokio::fs::read(format!("data/static/CLASS:{}={}-{}|{}-{}",lc,lw,lh,academic_year,semester)).await{
-                    Ok(b) => {
+                if let Ok(b) = tokio::fs::read(format!("data/static/CLASS:{}={}-{}|{}-{}",lc,lw,lh,academic_year,semester)).await{
                         let mut slice: [u8; 6] = [0; 6];
-                        let mut ind = 0;
-                        for i in b{
+                        for (ind, i) in b.into_iter().enumerate(){
                             slice[ind] = i;
                             if ind+1 == 6{
                                 break;
                             }
-                            ind+=1usize;
                         }
                         let data = crate::static_data::deserialize(slice);
                         to_return.push(JoinedLessonRaw{
@@ -459,14 +452,12 @@ pub async fn static_old_table(db: &rusqlite::Connection) -> Result<Vec<JoinedLes
                             academic_year: Some(academic_year),
                             semester: Some(semester)
                         });
-                    }
-                    _ => {}
                 }
             }
         }
     }
 
-    return Ok(to_return);
+    Ok(to_return)
 }
 
 pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connection) -> Result<Vec<JoinedLesson>, rusqlite::Error>{
@@ -492,7 +483,7 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                         row.get::<usize, String>(1).ok()
                     ))
                 })?;
-                already_visited_class.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
+                already_visited_class.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
                 current_to_lesson.class = name;
             }
         }
@@ -508,7 +499,7 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                         row.get::<usize, String>(1).ok()
                     ))
                 })?;
-                already_visited_classroom.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
+                already_visited_classroom.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
                 current_to_lesson.classroom = name;
             }
         }
@@ -524,7 +515,7 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                         row.get::<usize, String>(1).ok()
                     ))
                 })?;
-                already_visited_teacher.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
+                already_visited_teacher.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
                 current_to_lesson.teacher = name;
             }
         }
@@ -540,7 +531,7 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                         row.get::<usize, String>(1).ok()
                     ))
                 })?;
-                already_visited_subject.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
+                already_visited_subject.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
                 current_to_lesson.subject = name;
             }
         }
@@ -566,7 +557,7 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                     end_hour,
                     end_minutes: end_minute
                 };
-                already_visited_lessonh.insert(id.clone().unwrap_or_default(), current);
+                already_visited_lessonh.insert(id.unwrap_or_default(), current);
                 current_to_lesson.lessonh = current;
             }
         }
@@ -582,7 +573,7 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                         row.get::<usize, String>(1).ok()
                     ))
                 })?;
-                already_visited_semester.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
+                already_visited_semester.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
                 current_to_lesson.semester = name;
             }
         }
@@ -598,13 +589,13 @@ pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connec
                         row.get::<usize, String>(1).ok()
                     ))
                 })?;
-                already_visited_year.insert(id.clone().unwrap_or_default(), name.clone().unwrap_or_default());
+                already_visited_year.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
                 current_to_lesson.academic_year = name;
             }
         }
         to_return.push(current_to_lesson);
     }
-    return Ok(to_return);
+    Ok(to_return)
 }
 
 /// DYNAMIC
@@ -612,13 +603,10 @@ pub fn get_lessons_by_teacher_id(teacher_id: u16, db: &rusqlite::Connection) -> 
     let now         = chrono::Local::now();
     let now_iso8601 = now.to_rfc3339();
     let weekd       = now.weekday() as u8 + 1;
-    let now_hour    = now.hour  () & 0xFF;
-    let now_minute  = now.minute() & 0xFF;
     let query = 
     "SELECT 
     Lessons.weekday, Classes.class_name, Classrooms.classroom_name, Subjects.subject_name,
-    LessonHours.start_hour, LessonHours.start_minutes, LessonHours.end_hour, LessonHours.end_minutes,
-    Years.start_date, Years.end_date, 
+    LessonHours.start_hour, LessonHours.start_minutes, LessonHours.end_hour, LessonHours.end_minutes, Lessons.lesson_hour
     FROM Lessons 
     JOIN Classes     ON Lessons.class_id      = Classes.class_id
     JOIN Classrooms  ON Lessons.classroom_id  = Classrooms.classroom_id 
@@ -627,13 +615,12 @@ pub fn get_lessons_by_teacher_id(teacher_id: u16, db: &rusqlite::Connection) -> 
     JOIN Years       ON Lessons.academic_year = Years.academic_year
     JOIN Semesters   ON Lessons.semester      = Semesters.semester
     WHERE Lessons.teacher_id        < ?1 AND Lessons.weekday         = ?2
-    AND   LessonHours.start_hour    < ?3 AND LessonHours.end_hour    > ?3
-    AND   LessonHours.start_minutes < ?4 AND LessonHours.end_minutes > ?4
     AND   Semesters.start_date      < ?5 AND Semesters.end_date      > ?5
+    AND   Years.start_date          < ?5 AND Years.end_date          > ?5
     ";
     let mut stmt = db.prepare(query)?;
 
-    let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_hour.to_string(), now_minute.to_string(), now_iso8601], |row|{
+    let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_iso8601], |row|{
         Ok(
             JoinedLesson{
                 weekday   : row.get(0).ok(),
@@ -642,7 +629,7 @@ pub fn get_lessons_by_teacher_id(teacher_id: u16, db: &rusqlite::Connection) -> 
                 classroom : row.get(2).ok(),
                 subject   : row.get(3).ok(),
                 lessonh   : JoinedHour{
-                    lesson_hour: None,
+                    lesson_hour  : row.get(8).ok(),
                     start_hour   : row.get(4).ok(),
                     start_minute : row.get(5).ok(),
                     end_hour     : row.get(6).ok(),
@@ -654,12 +641,10 @@ pub fn get_lessons_by_teacher_id(teacher_id: u16, db: &rusqlite::Connection) -> 
         )
     })?;
     let mut to_return = vec![];
-    for joined_lesson in iter{
-        if let Ok(v) = joined_lesson{
-            to_return.push(v);
-        }
+    for joined_lesson in iter.flatten(){
+        to_return.push(joined_lesson);
     }
-    return Ok(to_return);
+    Ok(to_return)
 }
 /// DYNAMIC
 pub fn get_lessons_by_class_id(class_id: u16, db: &rusqlite::Connection) -> Result<Vec<JoinedLesson>, rusqlite::Error> {
@@ -708,12 +693,10 @@ pub fn get_lessons_by_class_id(class_id: u16, db: &rusqlite::Connection) -> Resu
         )
     })?;
     let mut to_return = vec![];
-    for joined_lesson in iter{
-        if let Ok(v) = joined_lesson{
-            to_return.push(v);
-        }
+    for joined_lesson in iter.flatten(){
+        to_return.push(joined_lesson);
     }
-    return Ok(to_return);
+    Ok(to_return)
 }
 
 pub fn get_duties_for_teacher(teacher_id: u16, db: &rusqlite::Connection) -> Result<Vec<JoinedDuty>, rusqlite::Error>{
@@ -737,7 +720,7 @@ pub fn get_duties_for_teacher(teacher_id: u16, db: &rusqlite::Connection) -> Res
     AND Semesters.start_date < ?5 AND Semesters.end_date > ?5
     AND Years.start_date     < ?5 AND Years.end_date     > ?5
     ";
-    let mut stmt = db.prepare(&query)?;
+    let mut stmt = db.prepare(query)?;
     let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_hour.to_string(), now_minute.to_string(), now_iso8601], |row| {
         Ok(
             JoinedDuty{
@@ -757,10 +740,8 @@ pub fn get_duties_for_teacher(teacher_id: u16, db: &rusqlite::Connection) -> Res
         )
     })?;
     let mut to_return = vec![];
-    for joined_duty in iter{
-        if let Ok(duty) = joined_duty{
-            to_return.push(duty);
-        }
+    for joined_duty in iter.flatten(){
+        to_return.push(joined_duty);
     }
     Ok(to_return)
 }
@@ -796,8 +777,10 @@ pub enum Delete{
     Duty       {weekday: u8, break_num: u8, teacher_id: u16, semester: u8, academic_year: u8}
 }
 
+type Lesson = (u8, u16, u16, u16, u16, u16, u8, u8);
+
 pub enum POST{
-    Lesson      (Option<(u8, u16, u16, u16, u16, u16, u8, u8)>),
+    Lesson      (Option<Lesson>),
     Class       (Option<(u16, String)>),
     Classroom   (Option<(u16, String)>),
     Teacher     (Option<(u16, String)>),
@@ -816,15 +799,15 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
             match delete{
                 Delete::Subject { subject } => {
                     db.execute("DELETE FROM Subjects WHERE subject_name = ?1", [subject])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Year { academic_year } => {
                     db.execute("DELETE FROM Years WHERE academic_year = ?1", [academic_year])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Class { class } => {
                     db.execute("DELETE FROM Classes WHERE class_id = ?1", [class])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Lesson { class, weekd, lessonh, semester, academic_year } => {
                     db.execute("DELETE FROM Classes 
@@ -832,27 +815,27 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                         AND lesson_hour = ?3 AND semester = ?4
                         AND academic_year = ?5"
                         , [class, weekd.into(), lessonh, semester.into(), academic_year.into()])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Teacher { teacher } => {
                     db.execute("DELETE From Teachers WHERE teacher_id = ?1", [teacher])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Semester { semester } => {
                     db.execute("DELETE FROM Semesters WHERE semester = ?1", [semester])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Corridor { corridor } => {
                     db.execute("DELETE FROM Corridors WHERE corridor = ?1", [corridor])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Classroom { classroom } => {
                     db.execute("DELETE FROM Classrooms WHERE classroom_id = ?1", [classroom])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::LessonHour { lessonh } => {
                     db.execute("DELETE FROM LessonHours WHERE lesson_hour = ?1", [lessonh])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Duty { weekday, break_num, teacher_id, semester, academic_year } => {
                     db.execute("DELETE FROM Duties 
@@ -861,7 +844,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                         AND teacher_id    = ?3 
                         AND semester      = ?4
                         AND academic_year = ?5", [weekday.into(), break_num.into(), teacher_id, semester.into(), academic_year.into()])?;
-                    return Ok("msat/201-Deleted".to_string());
+                    Ok("msat/201-Deleted".to_string())
                 }
             }
         }
@@ -881,7 +864,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                     ON CONFLICT (weekday, break_num, teacher_id, semester, academic_year) 
                     DO UPDATE SET 
                     place_id = excluded.place_id"
-                        ,[weekd.into(), break_num.into(), teacher_id, place_id.into(), semester.into(), academic_year.into()]
+                        ,[weekd.into(), break_num.into(), teacher_id, place_id, semester.into(), academic_year.into()]
                     )?;
                 }
                 POST::Class(Some((class_id, class_name))) => {
@@ -964,7 +947,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                     return Ok("msat/500-Internal-Server-Error&error=error+occured+while+inserting+values".to_string());
                 }
             }
-            return Ok("msat/201-Created".to_string());
+            Ok("msat/201-Created".to_string())
         }
         MainpulationType::Get(get) => {
             match get{
@@ -975,7 +958,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    return Ok(format!("msat/200-OK&teacher_name={}", string.to_single('_')));
+                    Ok(format!("msat/200-OK&teacher_name={}", string.to_single('_')))
                 }
                 GET::Class { class_id } => {
                     let mut stmt = db.prepare("SELECT class_name FROM Classes WHERE class_id = ?1")?;
@@ -984,7 +967,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    return Ok(format!("msat/200-OK&class_name={}",name));
+                    Ok(format!("msat/200-OK&class_name={}",name))
                 }
                 GET::Classroom { classroom_id } => {
                     let mut stmt = db.prepare("SELECT classroom_name FROM Classrooms WHERE classroom_id = ?1")?;
@@ -993,7 +976,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    return Ok(format!("msat/200-OK&classroom_name={}",name));
+                    Ok(format!("msat/200-OK&classroom_name={}",name))
                 }
                 GET::Subject { subject_id } => {
                     let mut stmt = db.prepare("SELECT subject_name FROM Subjects WHERE subject_id = ?1")?;
@@ -1002,8 +985,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    return Ok(format!("msat/200-OK&subject_name={}",name));
-
+                    Ok(format!("msat/200-OK&subject_name={}",name))
                 }
                 GET::Corridor { corridor_id } => {
                     let mut stmt = db.prepare("SELECT corridor_name FROM Corridors WHERE corridor = ?1")?;
@@ -1012,7 +994,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    return Ok(format!("msat/200-OK&corridor_name={}",name));
+                    Ok(format!("msat/200-OK&corridor_name={}",name))
                 }
                 GET::Year { year } => {
                     let mut stmt = db.prepare("SELECT year_name, start_date, end_date FROM Years WHERE academic_year = ?1")?;
@@ -1023,8 +1005,8 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get(2).unwrap_or_default()
                         ))
                     })?;
-                    return Ok(format!("msat/200-OK&year_name={}&start_date={}&end_date={}", 
-                            year_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')));
+                    Ok(format!("msat/200-OK&year_name={}&start_date={}&end_date={}", 
+                            year_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')))
                 }
                 GET::Lesson { class, lesson_hour, weekd, semester, academic_year } => {
                     let mut stmt = db.prepare("SELECT classroom_id, teacher_id, subject_id FROM Lessons 
@@ -1041,7 +1023,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                                 row.get(2).unwrap_or_default()
                         ))
                     })?;
-                    return Ok(format!("msat/200-OK&classroom_name={}&teacher_name={}&subject_name={}", classroom, teacher, subject));
+                    Ok(format!("msat/200-OK&classroom_name={}&teacher_name={}&subject_name={}", classroom, teacher, subject))
                 }
                 GET::Semester { semester } => {
                     let mut stmt = db.prepare("SELECT semester_name, start_date, end_date 
@@ -1055,8 +1037,8 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                                     row.get(2).unwrap_or_default()
                             ))
                         })?;
-                    return Ok(format!("msat/200-OK&semester_name={}&start_date={}&end_date={}", 
-                        semester_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')));
+                    Ok(format!("msat/200-OK&semester_name={}&start_date={}&end_date={}", 
+                        semester_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')))
                 }
                 GET::LessonHour { lesson_hour } => {
                     let mut stmt = db.prepare("SELECT start_hour, start_minutes, end_hour, end_minutes 
@@ -1071,9 +1053,9 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                                 row.get(3).unwrap_or_default()
                         ))
                     })?;
-                    return Ok(
+                    Ok(
                         format!("msat/200-OK&start_time={:02}:{:02}&end_time={:02}:{:02}", 
-                        start_hour, start_minutes, end_hour, end_minutes));
+                        start_hour, start_minutes, end_hour, end_minutes))
                 }
                 GET::Break { break_hour } => {
                     let mut stmt = db.prepare("SELECT start_hour, start_minutes, end_hour, end_minutes 
@@ -1088,9 +1070,9 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                                 row.get(3).unwrap_or_default()
                         ))
                     })?;
-                    return Ok(
+                    Ok(
                         format!("msat/200-OK&start_time={:02}:{:02}&end_time={:02}:{:02}", 
-                        start_hour, start_minutes, end_hour, end_minutes));
+                        start_hour, start_minutes, end_hour, end_minutes))
                 }
                 GET::Duty { weekd, break_num, teacher_id, semester, academic_year } => {
                     let mut stmt = db.prepare(
@@ -1108,7 +1090,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    return Ok(format!("msat/200-OK&duty_place={}", result.to_single('_')));
+                    Ok(format!("msat/200-OK&duty_place={}", result.to_single('_')))
                 }
             }
         }

@@ -10,19 +10,19 @@
 //=================================
 
 // Global Imports
-use std::{ 
-    io::{
-        Read, Write
-    }, 
-    net::{
-        TcpListener, TcpStream
-    }, 
-    sync::Arc
-};
+use std::sync::Arc;
 use tokio::{
     sync::{
         Mutex, 
         Semaphore
+    },
+    io::{
+        AsyncReadExt,
+        AsyncWriteExt
+    },
+    net::{
+        TcpListener,
+        TcpStream
     },
     time::{
         self,
@@ -36,7 +36,14 @@ use colored::Colorize;
 
 use shared_components::{
     backend::{
-        self, get_config, get_lessons_by_teacher_id, manipulate_database, MainpulationType, ParsedRequest, Request, RequestType
+        self, 
+        get_config, 
+        get_lessons_by_teacher_id, 
+        manipulate_database, 
+        MainpulationType, 
+        ParsedRequest,
+        Request, 
+        RequestType
     }, 
     consts::*, 
     types::*, 
@@ -90,7 +97,7 @@ async fn main() {
     }
 
     let listener : TcpListener = match TcpListener::bind
-        (format!("{}:{}", ip, port))
+        (format!("{}:{}", ip, port)).await
         {
             Ok(v) => v,
             Err(e) => 
@@ -112,29 +119,21 @@ async fn main() {
 
 async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>, limit: Arc<Semaphore>, timeout: Arc<u64>){
     loop{
-        for s in listener.incoming(){
-            let (mut ip_address, mut port) = (*LOCAL_IP,0);
-            if let Ok(stream) = s
-            {
-                if let Ok(socket_ip) = stream.local_addr()
-                {
-                    ip_address = socket_ip.ip();
-                    port = socket_ip.port();
-                };
-                let cloned_timeout = Arc::clone(&timeout);
-                let cloned_limit = Arc::clone(&limit);
-                if let Ok(Ok(perm)) = time::timeout(Duration::from_secs(*cloned_timeout), cloned_limit.acquire_owned()).await{
-                    let shared_db = Arc::clone(&db);
-                    tokio::spawn(
-                        async move{
-                            if let Err(error) = handle_connection(stream, shared_db).await{
-                                visual::error(Some(error.to_response()), "Error occured while handling exception");
-                            }
-                            else{
-                                visual::success(&format!("Successfully handled request from TCP Addr: {}:{}", ip_address, port))
-                            };
+        if let Ok((stream, socketaddr)) = listener.accept().await{
+            let cloned_timeout = Arc::clone(&timeout);
+            let cloned_limit = Arc::clone(&limit);
+            if let Ok(Ok(perm)) = time::timeout(Duration::from_secs(*cloned_timeout), cloned_limit.acquire_owned()).await{
+                let shared_db = Arc::clone(&db);
+                tokio::spawn(
+                    async move{
+                        if let Err(error) = handle_connection(stream, shared_db).await{
+                            visual::error(Some(error.to_response()), "Error occured while handling request");
                         }
-                    );
+                        else{
+                            visual::success(&format!("Successfully handled request from TCP Addr: {}:{}", socketaddr.ip(), socketaddr.port()))
+                        };
+                    }
+                );
                     drop(perm);
                 }
             }
@@ -142,12 +141,11 @@ async fn start_listening(listener: TcpListener, db: Arc<Mutex<SQLite>>, limit: A
                 visual::error::<u8>(None, "TCPStream is None");
             }
         }
-    }
 }
 
 async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Result<(), ServerError>{
     let mut data_sent = [0u8; 2048];
-    let len = if let Ok(len) = stream.read(&mut data_sent){
+    let len = if let Ok(len) = stream.read(&mut data_sent).await{
         len
     }
     else{
@@ -159,7 +157,7 @@ async fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<SQLite>>) -> Res
             Ok(v) => v,
             Err(err) => return Err(err)
         };
-        if stream.write_all(response.as_bytes()).is_err(){
+        if stream.write_all(response.as_bytes()).await.is_err(){
             return Err(ServerError::WriteRequestError);
         }
         else{
@@ -203,7 +201,8 @@ async fn get_response(parsed_request: ParsedRequest, db: Arc<Mutex<SQLite>>) -> 
                             }
                         }
                         else{
-                            return Err(ServerError::ParseArgError { args: [class_id, weekday, lesson_hour, semester, academic_year].iter().map(|s| s.to_string()).collect()});
+                            return Err(ServerError::ParseArgError { 
+                                args: [class_id, weekday, lesson_hour, semester, academic_year].iter().map(|s| s.to_string()).collect()});
                         }
                     }
                     else {

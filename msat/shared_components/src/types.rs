@@ -6,10 +6,10 @@ use serde::{
     Serialize, 
     Deserialize
 };
-use chrono::Datelike;
 use std::net::IpAddr;
 use crate::consts::*;
 use crate::backend::RequestType as Request;
+#[allow(warnings)]
 impl ToString for Request{
     fn to_string(&self) -> String {
         match &self{
@@ -49,7 +49,7 @@ pub struct AppServerConfig{
 
 impl std::default::Default for HttpServerConfig{
     fn default() -> Self{
-        return Self{
+        Self{
             port: 8000,
             ip: *LOCAL_IP,
             max_timeout_seconds: 10,
@@ -59,7 +59,7 @@ impl std::default::Default for HttpServerConfig{
 }
 impl std::default::Default for AppServerConfig{
     fn default() -> Self{
-        return Self{
+        Self{
             port: 8888,
             max_connections: 100,
             max_timeout_seconds: 10,
@@ -137,57 +137,13 @@ impl Language{
     pub fn english_or(&self, english: &str, polish: &str) -> String{
         match self{
             Self::Polish => {
-                return polish.to_string()
+                polish.to_string()
             }
             Self::English => {
-                return english.to_string()
+                english.to_string()
             }
         }
     }
-}
-
-pub enum Weekday{
-    Monday,
-    Tuesday,
-    Wednesday,
-    Thursday,
-    Friday,
-    Saturday,
-    Sunday,
-    Unknown
-}
-
-impl Weekday{
-    fn now() -> Weekday{
-        Weekday::from(chrono::Local::now().weekday() as u8)
-    }
-    fn to_num(val: Weekday) -> u8{
-        return match val{
-            Weekday::Monday    => 1,
-            Weekday::Tuesday   => 2,
-            Weekday::Wednesday => 3,
-            Weekday::Thursday  => 4,
-            Weekday::Friday    => 5,
-            Weekday::Saturday  => 6,
-            Weekday::Sunday    => 7,
-            Weekday::Unknown   => 0
-        };
-    }
-}
-
-impl From<u8> for Weekday{
-    fn from(value : u8) -> Self{
-        return match value{
-            1 => Self::Monday,
-            2 => Self::Tuesday,
-            3 => Self::Wednesday,
-            4 => Self::Thursday,
-            5 => Self::Friday,
-            6 => Self::Saturday,
-            7 => Self::Sunday,
-            _ => Self::Unknown
-        };
-    } 
 }
 
 #[derive(Deserialize, Serialize, Default, Clone, Copy)]
@@ -198,7 +154,6 @@ pub struct JoinedHour{
     pub end_hour     : Option<u8>,
     pub end_minutes  : Option<u8>
 }
-
 #[derive(Deserialize, Serialize, Default)]
 pub struct JoinedLesson{
     pub weekday       : Option<u8>,
@@ -249,12 +204,12 @@ impl MultiwordToSingleword for String{
         let mut to_return = "".to_string();
         for word in words{
             if to_return.as_str() == ""{
-                to_return.push_str(&format!("{}", word));
+                to_return.push_str(word);
             }
             else{
                 to_return.push_str(&format!("{}{}", separator, word));
             }
         }
-        return to_return
+        to_return
     }
 }

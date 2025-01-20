@@ -13,6 +13,7 @@ use std::{
     }
 };
 
+#[allow(warnings)]
 pub fn get_public_ip() -> Result<IpAddr, ()>{
     let curl_result = Command::new("curl")
         .arg("https://api.ipify.org/")
@@ -23,28 +24,29 @@ pub fn get_public_ip() -> Result<IpAddr, ()>{
             {
                 if let Ok(string) = String::from_utf8(output.stdout){
                     if let Ok(ip) = IpAddr::from_str(&string){
-                        return Ok(ip)
+                        Ok(ip)
                     }
                     else{
-                        return Err(());
+                        Err(())
                     }
                 }
                 else{
-                    return Err(())
+                    Err(())
                 }
             }
             else{
-                return Err(());
+                Err(())
             }
         }
         Err(error) => 
         {
             crate::visual::error(Some(error), "Error occured while getting public IP");
-            return Err(());
+            Err(())
         }
     }
 }
 
+#[allow(warnings)]
 pub fn encode_ip(ip: IpAddr, port: u16) -> Result<String, ()>{
     let buf : [u8; 4] = match ip{
         IpAddr::V4(v4) => v4.octets(),
@@ -60,9 +62,9 @@ pub fn encode_ip(ip: IpAddr, port: u16) -> Result<String, ()>{
     }
     let port_hex = &format!("{:x}", port);
     string.push_str(&format!("_{}{}", port_hex.len(), port_hex));
-    return Ok(string);
+    Ok(string)
 }
-
+#[allow(warnings)]
 pub fn decode_ip(encoded_ip: String) -> Result<([u8; 4], u16), ()>{
     if let Some((ip_hex, port_hex)) = encoded_ip.split_once('_') {
         let mut ip_bytes = [0u8; 4];
