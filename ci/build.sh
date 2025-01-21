@@ -60,31 +60,18 @@ globalbuild_msat() {
 # START
 rm -rf $_build
 
-echo "Do you want to perform build using python or shell?"
-echo "[ 1 ] - [DONT USE] python build"
-echo "[ 2 ] - shell build"
+echo "Choose build option"
+echo "[ 1 ] - msat global build"
+echo "[ 2 ] - msat local build"
 echo "[ x ] - abort"
 
 read input
-
 if [[ $input == "1" ]]; then
-	python3 build.py
-elif [[ $input == "2" ]]; then 
-	echo "Choose build option"
-	echo "[ 1 ] - global msat build"
-	echo "[ 2 ] - local msat build"
-	echo "[ x ] - abort"
-	read input1
-
-	if [[ $input1 == "1" ]]; then
-		globalbuild_msat
-		echo "Release files can be found in directory:" ci/$_build/release
-	elif [[ $input == "2" ]]; then
-		localbuild_msat
-		echo "File can be found in directory:" ci/$_local.tar.gz
-	else
-		exit 0
-	fi
-else 
+	globalbuild_msat
+	echo "Release files can be found in directory:" ci/$_build/release
+elif [[ $input == "2" ]]; then
+	localbuild_msat
+	echo "File can be found in directory:" ci/$_local.tar.gz
+else
 	exit 0
 fi

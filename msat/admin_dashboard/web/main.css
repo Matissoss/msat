@@ -1,0 +1,154 @@
+/*  
+ *  This CSS file was made by MateusDev 
+ *  and is distributed under X11 (MIT) License
+ */
+
+:root{
+	--dark: #393E46;
+	--text: #F2F2F2;
+	--accent2: #5C636E;
+	--accent1: #F96D00;
+}
+
+@font-face{
+	font-family: std;
+	src: url("Roboto-Regular.ttf")
+}
+
+/*Navigation Menu :)*/
+#NAVM{
+	display: flex;
+	flex-direction: row;
+	background-color: var(--accent1);
+	justify-content: center;
+	margin: auto;
+	width: 95vw;
+	height: 5vh;
+}
+#NAVM a{
+	color: var(--text);
+	font-weight: bold;
+	text-decoration: none;
+	transition: 0.125s all;
+}
+#NAVM divider::after{
+	content: " ";
+	margin: 0;
+	border-right: solid 0.125vw var(--text);
+	border-left: solid 0.125vw var(--text);
+}
+#NAVM a:hover{
+	color: var(--accent2);
+	text-decoration: underline;
+}
+#NAVM *{
+	margin: auto;
+}
+
+.container{
+	display: flex;
+	flex-direction: column;
+	width: 80vw;
+	background-color: var(--text);
+	color: var(--dark);
+	padding: 0.5vw;
+	margin: auto;
+}
+
+body{
+	background-color: var(--dark);
+	color: var(--text);
+	font-family: std;
+	font-size: 120%;
+}
+h1{
+	color: var(--accent1);
+}
+h2{
+	color: var(--accent2)
+}
+
+button, input, select{
+	border: 0.3vw solid var(--accent2);
+	padding: 0.25vw;
+	font-size: 100%;
+	width: 12vw;
+	height: 6vh;
+	text-align: center;
+	font-weight: bolder;
+	background-color: var(--accent2);
+	color: var(--text);
+	transition: 0.125s all;
+}
+button:hover, input:hover, select:hover{
+	cursor: pointer;
+	border-color: var(--text);
+}
+button:focus, input:focus, select:focus{
+	outline: none;
+	border-color: var(--accent1);
+}
+option{
+	font-family: std;
+	font-weight: bolder;
+	text-align: center;
+}
+input::placeholder{
+	color: var(--accent1);
+	text-align: center;
+}
+input{
+	width: 12vw;
+	height: 4vh;
+}
+error, success{
+	display: block;
+	width: 60vw;
+	background-color: var(--accent1);
+	padding: 0.2vw;
+	text-align: center;
+	margin: auto;
+}
+success{
+	background-color: var(--accent2);
+}
+table{
+	border: 0.5vw solid var(--text);
+	margin: auto;
+	width: 90vw;
+	height: auto;
+}
+td{
+	margin: 0;
+	padding: 0.25vw;
+	border-bottom: 0.125vw solid var(--text);
+	text-align: center;
+}
+a{
+	color: var(--accent1);
+}
+tr:hover{
+	cursor: pointer;
+	background-color: var(--accent2);
+}
+.etd *{
+	border-bottom: 0;
+}
+.login{
+	border: 0.2vw solid var(--text);
+	width: 50vw;
+	height: 50vh;
+	height: auto;
+	display: flex;
+	text-align: center;
+	flex-direction: column;
+	align-self: center;
+	margin: auto;
+	padding: 2vw;
+}
+.login *{
+	width: 85%;
+	margin: auto;
+	margin-top: 0.55vh;
+	margin-bottom: 0.55vh;
+}

@@ -6,9 +6,7 @@
 
 // Global imports
 use std::{
-    net::IpAddr,
-    collections::BTreeMap,
-    sync::Arc
+    collections::{BTreeMap, HashMap}, net::IpAddr, sync::Arc
 };
 use tokio::{
     time::{
@@ -126,11 +124,19 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                 .collect::<Vec<&str>>();
             let mut types: Vec<String> = vec![];
             let mut file_path: String = String::new();
+            let mut cookies : HashMap<String, String> = HashMap::new();
             for line in lines {
                 let request = line
                     .split_whitespace()
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>();
+                if request.contains(&"Cookie:".to_string()) && request.len() > 1{
+                    for c in &request[1..]{
+                        if let Some((key, value)) = c.split_once('='){
+                            cookies.insert(key.to_string(), value.to_string());
+                        }
+                    }
+                }
                 if request.contains(&"GET".to_string()) {
                     let split_line: Vec<String> = request
                         .clone()
@@ -146,12 +152,15 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                         }
                         else {
                             if !w.starts_with("/?"){
+                                if w.ends_with(".js"){
+                                    types = vec!["text/javascript".to_string()];
+                                }
                                 file_path = format!("./web{}", w)
                             }
                             else if w.starts_with("/?msat") && !w.starts_with("/?lang="){
                                 let cloned_dbptr = Arc::clone(&db_ptr);
                                 let cloned_lang = Arc::clone(&lang);
-                                let response = handle_custom_request(&w, cloned_dbptr, cloned_lang).await;
+                                let response = handle_custom_request(&w, cloned_dbptr, cloned_lang, &cookies).await;
                                 match stream.write_all(
                                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type: application/xml\r\n\r\n{}",
                                         response.len(), response).as_bytes()).await
@@ -225,7 +234,10 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
         }
     }
 }
-async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) -> String{
+async fn handle_custom_request
+(request: &str, db: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>, cookies: &HashMap<String, String>) 
+-> String
+{
     // request example: /?msat/version&method=POST+1&version=10&args=20
     
     let parsed_request = match Request::from_str(request).parse(){
@@ -235,11 +247,15 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                 "<error><p>Serwer nie mógł przetworzyć zapytania</p></error>");
         }
     };
-    #[allow(warnings)]
-    if let (Some(pswd), Some(set_pswd)) = (parsed_request.args.get("password"), get_config().await.and_then(|s| Some(s.password))){
-        if pswd != &set_pswd || pswd.is_empty() && parsed_request.req_type != RequestType::Other("PAS".to_string()) && parsed_request.req_numb != 0{
-                return lang.english_or("<error><p>Bad password</p></error>", "<error><p>Złe hasło</p></error>")
-        }
+    if let (Some(pswd), Some(set_conf)) = (parsed_request.args.get("password"), get_config().await){
+        let set_pswd = set_conf.password;
+        #[allow(warnings)]
+        if pswd != &set_pswd || pswd.is_empty() && cookies.get("password").unwrap_or(&"".to_string()) != &set_pswd
+            {
+                if parsed_request.req_type != RequestType::Other("PAS".to_string()) && parsed_request.req_numb != 0{
+                    return lang.english_or("<error><p>Bad password</p></error>", "<error><p>Złe hasło</p></error>")
+                }
+            }
     }
     else{
         return lang.english_or("<error><p>Authentication Error</p></error>", "<error><p>Błąd autentyntykacji</p></error>")
@@ -386,6 +402,23 @@ async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection
                                 return to_return
                             }
 
+                        }
+                    }
+                }
+                4 => {
+                    if let Some(tid_str) = args.get("teacher_id"){
+                        if let Ok(tid) = tid_str.parse::<u16>(){
+                            match manipulate_database(
+                                    MainpulationType::Get(backend::GET::Teacher 
+                                        { teacher_id: tid }
+                                    ), 
+                                    &*db.lock().await)
+                            {
+                                Ok(tn) => return tn,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
                         }
                     }
                 }

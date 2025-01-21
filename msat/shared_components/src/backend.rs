@@ -88,7 +88,7 @@ pub static TIMEOUT : u32 = 30;
 // Struct Initialization
 
 #[allow(unused)]
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum RequestType{
     GET,
     POST,
@@ -97,16 +97,34 @@ pub enum RequestType{
     Unknown
 }
 #[allow(unused)]
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Request{
     pub request: String,
 }
 #[allow(unused)]
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct ParsedRequest{
     pub req_type: RequestType,
     pub req_numb: u8,
     pub args: HashMap<String, String>
+}
+
+fn split_str_by(str: &str, ch: char) -> Vec<String>{
+    let mut temp_buf : Vec<char> = vec![];
+    let mut to_return = vec![];
+    for c in str.chars().collect::<Vec<char>>(){
+        if c == ch{
+            to_return.push(String::from_iter(temp_buf.iter()));
+            temp_buf = vec![];
+        }
+        else{
+            temp_buf.push(c);
+        }
+    }
+    if !temp_buf.is_empty(){
+        to_return.push(String::from_iter(temp_buf.iter()));
+    }
+    to_return
 }
 
 impl Request{
@@ -115,19 +133,15 @@ impl Request{
         Request{request: request.to_string()}
     }
     pub fn parse(&self) -> Result<ParsedRequest, ServerError>{
-        if !self.request.starts_with(&format!("/?msat/{}", VERSION)) || !self.request.starts_with(&format!("msat/{}" , VERSION))
-        {
-            return Err(ServerError::UnknownRequest);
+        if !self.request.starts_with(&format!("/?msat/{}", VERSION)) && !self.request.starts_with(&format!("/msat/{}", VERSION)){
+            return Err(ServerError::InvalidRequest(self.request.clone()));
         }
-        let vector = self.request.split('&').collect::<Vec<&str>>();
-        if vector.len() == 1{
-            return Err(ServerError::UnknownRequest);
-        }
+        let vector = split_str_by(&self.request, '&');
         let mut to_return = ParsedRequest::default();
         let mut finhashmap = HashMap::new();
-        for word in vector{
+        for word in &vector{
             if let Some((key, value)) = word.split_once('='){
-                finhashmap.insert(key, value);
+                finhashmap.insert(key.to_string(), value.to_string());
             }
         }
         if let Some(value) = finhashmap.get("method"){
@@ -140,6 +154,8 @@ impl Request{
                 to_return.req_numb = numb.parse().unwrap_or(0);
             }
         }
+        finhashmap.remove("method");
+        to_return.args = finhashmap;
         Ok(to_return)
     }
 }
@@ -303,6 +319,7 @@ pub fn init_db() -> Result<Database, SQLiteError>{
         "
         ,[])?;
     db.execute_batch("PRAGMA journal_mode = WAL")?;
+    db.execute_batch("PRAGMA foreign_key = ON")?;
     db.busy_timeout(std::time::Duration::from_secs(4))?;
 
     Ok(db)
@@ -951,7 +968,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    Ok(format!("msat/200-OK&teacher_name={}", string.to_single('_')))
+                    Ok(string)
                 }
                 GET::Class { class_id } => {
                     let mut stmt = db.prepare("SELECT class_name FROM Classes WHERE class_id = ?1")?;
@@ -960,7 +977,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    Ok(format!("msat/200-OK&class_name={}",name))
+                    Ok(name)
                 }
                 GET::Classroom { classroom_id } => {
                     let mut stmt = db.prepare("SELECT classroom_name FROM Classrooms WHERE classroom_id = ?1")?;
@@ -969,7 +986,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    Ok(format!("msat/200-OK&classroom_name={}",name))
+                    Ok(name)
                 }
                 GET::Subject { subject_id } => {
                     let mut stmt = db.prepare("SELECT subject_name FROM Subjects WHERE subject_id = ?1")?;
@@ -978,7 +995,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    Ok(format!("msat/200-OK&subject_name={}",name))
+                    Ok(name)
                 }
                 GET::Corridor { corridor_id } => {
                     let mut stmt = db.prepare("SELECT corridor_name FROM Corridors WHERE corridor = ?1")?;
@@ -987,7 +1004,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    Ok(format!("msat/200-OK&corridor_name={}",name))
+                    Ok(name)
                 }
                 GET::Year { year } => {
                     let mut stmt = db.prepare("SELECT year_name, start_date, end_date FROM Years WHERE academic_year = ?1")?;
@@ -1087,5 +1104,23 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    #[test]
+    fn test(){
+        let mut args = HashMap::new();
+        args.insert("password".to_string(), "test".to_string());
+        assert_eq!(Ok(
+            ParsedRequest{
+                req_numb: 0,
+                req_type: RequestType::Other("PAS".to_string()),
+                args
+            })
+            ,
+            Request::from_str("/?msat/50&password=test&method=PAS+0").parse());
     }
 }

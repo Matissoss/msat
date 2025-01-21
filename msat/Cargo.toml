@@ -2,13 +2,15 @@
 members = [
 	"app_server",
 	"admin_dashboard",
-	"shared_components",
+	"shared_components", 
+	"tc",
 ]
 resolver = "2"
 
 [profile.release]
 opt-level = 3
 lto = "thin"
+panic = "abort"
 codegen-units = 1
 debug = false
 

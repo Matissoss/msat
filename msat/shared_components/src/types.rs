@@ -68,6 +68,7 @@ impl std::default::Default for AppServerConfig{
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ServerError{
     ParseIntError{arg: String},
     ParseArgError{args: Vec<String>},
@@ -82,6 +83,7 @@ pub enum ServerError{
     DatabaseError(rusqlite::Error)
 }
 
+#[derive(Debug, PartialEq)]
 pub enum HTTPError{
     NotFound,
     NotImplemented,
