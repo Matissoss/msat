@@ -4,80 +4,16 @@
 /// where to put
 ///==============================================
 
-use std::{net::IpAddr, str::FromStr};
+use std::{
+    net::IpAddr, 
+    str::FromStr,
+    process::{
+        Command,
+        ExitStatus
+    }
+};
 
-pub fn quick_match<T, E>(statement: Result<T, E>) -> Option<T>
-{
-    match statement{
-        Ok(v) => return Some(v),
-        Err(_) => return None
-    }
-}
-pub fn format_two_digit_time(time1: u8, time2: u8) -> String{
-    if time1 < 10 && time2 < 10{
-        return format!("0{}0{}", time1, time2);
-    }
-    else if time1 < 10 && time2 > 10{
-        return format!("0{}{}", time1, time2);
-    }
-    else if time1 > 10 && time2 < 10{
-        return format!("{}0{}", time1, time2);
-    }
-    else{
-        return format!("{}{}", time1, time2);
-    }
-}
-pub fn format_mmdd(input: &str) -> Result<(u8, u8), ()>{
-    if input.len() != 4{
-        return Err(());
-    }
-    let month = match input[0..1].parse::<u8>(){
-        Ok(v) => v,
-        Err(_) => {
-            return Err(());
-        }
-    };
-    let day = match input[2..3].parse::<u8>(){
-        Ok(v) => v,
-        Err(_) => {
-            return Err(());
-        }
-    };
-    return Ok((month, day));
-}
-
-pub fn format_lessonh(hour: u16) -> String{
-    if hour < 10{
-        return format!("00:0{}", hour);
-    }
-    else if hour < 100{
-        return format!("00:{}", hour);
-    }
-    else if hour < 1000{
-        let hour_chars = hour.to_string().chars().collect::<Vec<char>>();
-        format!("0{}:{}{}", hour_chars[0], hour_chars[1], hour_chars[2])
-    }
-    else if hour < 10000{
-        let hour_chars = hour.to_string().chars().collect::<Vec<char>>();
-        format!("{}{}:{}{}", hour_chars[0], hour_chars[1], hour_chars[2], hour_chars[3])
-    }
-    else{
-        return format!("00:00");
-    }
-}
-
-pub fn format_time(time: u32) -> String{
-    if time < 10{
-        return format!("0{}", time);
-    }
-    else{
-        return format!("{}", time);
-    }
-}
-
-use std::process::{Command, ExitStatus};
-
-use crate::cli;
+#[allow(warnings)]
 pub fn get_public_ip() -> Result<IpAddr, ()>{
     let curl_result = Command::new("curl")
         .arg("https://api.ipify.org/")
@@ -88,28 +24,29 @@ pub fn get_public_ip() -> Result<IpAddr, ()>{
             {
                 if let Ok(string) = String::from_utf8(output.stdout){
                     if let Ok(ip) = IpAddr::from_str(&string){
-                        return Ok(ip)
+                        Ok(ip)
                     }
                     else{
-                        return Err(());
+                        Err(())
                     }
                 }
                 else{
-                    return Err(())
+                    Err(())
                 }
             }
             else{
-                return Err(());
+                Err(())
             }
         }
         Err(error) => 
         {
-            cli::print_error("Error occured while getting public IP", error);
-            return Err(());
+            crate::visual::error(Some(error), "Error occured while getting public IP");
+            Err(())
         }
     }
 }
 
+#[allow(warnings)]
 pub fn encode_ip(ip: IpAddr, port: u16) -> Result<String, ()>{
     let buf : [u8; 4] = match ip{
         IpAddr::V4(v4) => v4.octets(),
@@ -125,9 +62,9 @@ pub fn encode_ip(ip: IpAddr, port: u16) -> Result<String, ()>{
     }
     let port_hex = &format!("{:x}", port);
     string.push_str(&format!("_{}{}", port_hex.len(), port_hex));
-    return Ok(string);
+    Ok(string)
 }
-
+#[allow(warnings)]
 pub fn decode_ip(encoded_ip: String) -> Result<([u8; 4], u16), ()>{
     if let Some((ip_hex, port_hex)) = encoded_ip.split_once('_') {
         let mut ip_bytes = [0u8; 4];

@@ -1,109 +1,142 @@
-///====================================
-///         admin_dashboard
-/// This file is responsible for http server
-/// made from scratch with TCP protocol
-///=========================================
+//=========================================
+//              admin_dashboard
+//  This part is responsible for handling 
+//  requests sent from browsers
+//=========================================
 
 // Global imports
 use std::{
-    collections::{BTreeMap, HashMap}, io::{Read, Write}, net::{IpAddr, TcpListener, TcpStream}, sync::Arc
+    collections::{BTreeMap, HashMap}, net::IpAddr, sync::Arc
 };
-use tokio::sync::{Mutex, Semaphore};
-use rusqlite::{self, OpenFlags};
+use tokio::{
+    time::{
+        self,
+        Duration
+    },
+    net::{
+        TcpListener,
+        TcpStream,
+    },
+    io::{
+        AsyncReadExt,
+        AsyncWriteExt,
+    },
+    sync::{
+        Mutex, 
+        Semaphore
+    }
+};
 
 // Local Imports 
 use shared_components::{
-    database::*, split_string_by, types::*, LOCAL_IP, SQLITE_FLAGS, cli, config
+    backend::{
+        self, 
+        get_config, 
+        get_duties_for_teacher, 
+        get_lessons_by_class_id, 
+        get_lessons_by_teacher_id, 
+        manipulate_database, 
+        MainpulationType, 
+        Request, 
+        RequestType
+    }, 
+    consts::*, 
+    types::*, 
+    visual
 };
-use web::dashboard;
-mod web;
 
 #[tokio::main]
 #[allow(warnings)]
 async fn main(){
-    cli::main();
+    visual::main();
     init_httpserver().await;
 }
 
 pub async fn init_httpserver() {
-    if let Err(_) = init(*SQLITE_FLAGS).await{
-        std::process::exit(-1);
-    };
     let database = Arc::new(Mutex::new(
-            match rusqlite::Connection::open_with_flags("data/database.db",
-                OpenFlags::SQLITE_OPEN_CREATE|OpenFlags::SQLITE_OPEN_FULL_MUTEX|OpenFlags::SQLITE_OPEN_READ_WRITE){
+            match backend::init_db(){
                 Ok(v) => v,
-                Err(_) => std::process::exit(-1)
+                Err(_) => visual::critical_error::<u8>(None, "Error occured while initializing database")
             }
     ));
 
-    let (ip, port, max_limit, max_timeout, lang) : (IpAddr, u16, u16, Arc<u64>, Arc<Language>) = match config::get().await{
-        Ok(c) => {
-            if let Some(config) = c{
-                (config.http_server.tcp_ip.unwrap_or(*LOCAL_IP), 
-                 config.http_server.http_port, config.http_server.max_connections,
-                 Arc::new(config.http_server.max_timeout_seconds.into()),
-                 Arc::new(config.language))
-            }
-            else{
-                (*LOCAL_IP, 8000, 100, Arc::new(10), Arc::new(Language::default()))
-            }
+    let (ip, port, max_limit, max_timeout, lang) : (IpAddr, u16, u16, Arc<u64>, Arc<Language>) = match backend::get_config().await{
+        Some(c) => {
+                (c.http_server.ip, 
+                 c.http_server.port, c.http_server.max_connections,
+                 Arc::new(c.http_server.max_timeout_seconds.into()),
+                 Arc::new(c.language))
         }
-        Err(_) => {
+        None => {
             (*LOCAL_IP, 8000, 100, Arc::new(10), Arc::new(Language::default()))
         }
     };
     let limit = Arc::new(Semaphore::new(max_limit.into()));
-    let final_address = format!("{}:{}", ip.to_string(), port);
-    let listener: TcpListener = match TcpListener::bind(final_address) {
+    let final_address = format!("{}:{}", ip, port);
+    visual::debug(&final_address);
+    let listener: TcpListener = match TcpListener::bind(final_address).await {
         Ok(v) => v,
         Err(_) => std::process::exit(-1),
     };
-    cli::print_success("Initialized HTTP Server");
+    visual::success("Initialized HTTP Server");
     loop {
-        for s in listener.incoming() {
-            cli::debug_log("Request Incoming");
-            if let Ok(stream) = s{
-                let cloned_dbptr = Arc::clone(&database);
-                let cloned_permit = Arc::clone(&limit);
-                let cloned_timeout = Arc::clone(&max_timeout);
-                if let Ok(_) = tokio::time::timeout(std::time::Duration::from_secs(*cloned_timeout), 
-                    cloned_permit.acquire_owned()).await{
-                    let lang = Arc::clone(&lang);
-                    tokio::spawn(async move {
-                        handle_connection(stream, cloned_dbptr, Arc::clone(&lang)).await;
-                    });
-                }
-            }
-            else if let Err(error) = s{
-                cli::print_error("TCPStream is Err", error);
-            }
+        if let Ok((stream, socketaddr)) = listener.accept().await {
+            visual::debug(&format!("Request Incoming from {}:{}", socketaddr.ip(), socketaddr.port() ));
+                    let cloned_dbptr    = Arc::clone(&database);
+                    let cloned_permit   = Arc::clone(&limit);
+                    let cloned_timeout  = Arc::clone(&max_timeout);
+                    visual::debug("start operation");
+                    if let Ok(Ok(perm)) = time::timeout(Duration::from_secs(*cloned_timeout), cloned_permit.acquire_owned()).await{
+                        visual::debug("got permission");
+                        let lang = Arc::clone(&lang);
+                        tokio::spawn(async move {
+                            handle_connection(stream, cloned_dbptr, Arc::clone(&lang)).await;
+                        });
+                        drop(perm);
+                    }
+                    else{
+                        visual::debug("didn't got permission");
+                    }
         }
     }
 }
 pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) {
-    let mut buffer = [0u8; 2048];
-    if let Ok(len) = stream.read(&mut buffer) {
+    visual::debug("start of processing");
+    let mut buffer : [u8; 2048] = [0u8; 2048];
+    if let Ok(len) = stream.read(&mut buffer).await {
         if len == 0 {
-        } else {
-            let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
+        }
+        else{
+        visual::debug("start");
+        let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
+        visual::debug(&request);
+        if *DEBUG_MODE{
             for l in request.lines(){
                 if !l.is_empty()
                 {
-                    cli::debug_log(l);
+                        visual::debug(l);
                 }
             }
+        }
             let lines = request
                 .lines()
-                .filter(|s| s.is_empty() == false)
+                .filter(|s| !s.is_empty())
                 .collect::<Vec<&str>>();
             let mut types: Vec<String> = vec![];
             let mut file_path: String = String::new();
+            let mut cookies : HashMap<String, String> = HashMap::new();
             for line in lines {
                 let request = line
                     .split_whitespace()
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>();
+                if request.contains(&"Cookie:".to_string()) && request.len() > 1{
+                    for c in &request[1..]{
+                        if let Some((key, value)) = c.split_once('='){
+                            cookies.insert(key.to_string(), value.to_string());
+                        }
+                    }
+                }
                 if request.contains(&"GET".to_string()) {
                     let split_line: Vec<String> = request
                         .clone()
@@ -111,22 +144,29 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                         .filter(|s| !s.starts_with("GET") && s.starts_with('/'))
                         .collect();
                     for w in split_line {
+                        // Weird rust_analyzer error
+                        #[allow(warnings)]
                         if w == "/" || w.starts_with("/?lang"){
+                            visual::debug("./web/index.html");
                             file_path = "./web/index.html".to_string();
-                        } else {
+                        }
+                        else {
                             if !w.starts_with("/?"){
+                                if w.ends_with(".js"){
+                                    types = vec!["text/javascript".to_string()];
+                                }
                                 file_path = format!("./web{}", w)
                             }
-                            else if w.starts_with("/?") && !w.starts_with("/?lang="){
+                            else if w.starts_with("/?msat") && !w.starts_with("/?lang="){
                                 let cloned_dbptr = Arc::clone(&db_ptr);
                                 let cloned_lang = Arc::clone(&lang);
-                                let response = handle_custom_request(&w, cloned_dbptr, cloned_lang).await;
+                                let response = handle_custom_request(&w, cloned_dbptr, cloned_lang, &cookies).await;
                                 match stream.write_all(
                                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type: application/xml\r\n\r\n{}",
-                                        response.len(), response).as_bytes())
+                                        response.len(), response).as_bytes()).await
                                 {
-                                    Ok(_) =>  cli::print_info("Handled Request"),
-                                    Err(_) => cli::print_info("Couldn't Handle Request")
+                                    Ok(_) =>  visual::info("Handled Request"),
+                                    Err(_) => visual::info("Couldn't Handle Request")
                                 };
                             }
                         }
@@ -138,918 +178,486 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                         .filter(|s| !s.starts_with("Accept:"))
                         .collect();
                     for w in split_line {
-                        types = split_string_by(&w, ',');
+                        types = get_types(w);
                     }
                 }
             }
-            if types.len() == 0 {
+            if types.is_empty(){
                 types = vec!["*/*".to_string()];
             }
             // End of checks
-            let binary: bool = types[0].starts_with("image");
+            let binary: bool = types[0].starts_with("image") || types[0].starts_with("font") || file_path.ends_with(".ttf");
             let f_type = &types[0];
-            cli::debug_log(&format!("file_path = {}", file_path));
-
-            if binary == false {
+            visual::debug(&format!("file_path = {}", file_path));
+            if !binary{
                 if let Ok(buf) = tokio::fs::read(&file_path).await {
                     if let Ok(string) = String::from_utf8(buf.clone()) {
-                        stream.write_all(
-                        format!("HTTP/1.1 200 OK\r\n{}Content-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
-                            if file_path.as_str() == "./web/index.html"{
-                            "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'\r\n"
-                            }else{""},string.len(), f_type, string)
-                        .as_bytes())
-                        .unwrap();
-                    } else {
-                        let string = String::from_utf8_lossy(&buf).to_string();
-                        stream.write_all(
-                        format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
-                            string.len(), f_type, string)
-                        .as_bytes())
-                        .unwrap()
-                    };
-                } else {
-                    not_found(&mut stream);
+                        if let Err(err) = 
+                            stream.write_all(
+                                format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\n\r\n{}",
+                                    string.len(), 
+                                    f_type, 
+                                    string
+                                )
+                                .as_bytes()
+                            ).await
+                        {
+                            visual::error(Some(err), "Handled request");
+                        };
+                    } 
+                    else {
+                        not_found(&mut stream).await;
+                    }
                 }
-            } else {
+            } 
+            else 
+            {
+                #[allow(warnings)]
                 if let Ok(buf) = tokio::fs::read(file_path).await {
                     let http_header = 
                     format!("HTTP/1.1 200 OK\r\nContent-Length:{}\r\nContent-Type:{}\r\nConnection: keep-alive\r\n\r\n",
                                     buf.len(), f_type);
-                    stream.write_all(http_header.as_bytes()).unwrap();
+                    if let Err(err) = stream.write_all(http_header.as_bytes()).await{
+                        visual::error(Some(err), "Coudln't handle request");
+                    };
                     let mut vector = Vec::with_capacity(buf.len() + http_header.len());
                     vector.extend_from_slice(buf.as_slice());
                     vector.extend_from_slice(http_header.as_bytes());
-                    stream.write_all(&buf).unwrap();
-                } else {
+                    if let Err(err) = stream.write_all(&buf).await{
+                        visual::error(Some(err), "Coudln't handle request");
+                    };
+                } 
+                else {
                     not_found(&mut stream);
                 }
             }
         }
     }
 }
-async fn handle_custom_request(request: &str, db: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) -> String{
-    // request example: /?method=POST+1&version=10&args=20
-    let request = String::from_iter(request.chars().collect::<Vec<char>>()[2..].iter());
-    let mut args : HashMap<String, String> = HashMap::new();
-    let req_split = split_string_by(&request, '&');
-    for s in req_split{
-        if let Some((key, value)) = s.split_once('='){
-            args.insert(key.to_string(), value.to_string());
-        }
-    }
-    let (method, method_num) = match args.get("method"){
-        Some(value) => {
-            if let Some((method, method_num)) = value.split_once('+'){
-                if let Ok(method_num) = method_num.parse::<u8>(){
-                    (method, method_num)
-                }
-                else{
-                    if *lang == Language::Polish{
-                        return "<error>
-                            <p>Numer metody nie mógł być przerobiony na liczbę 8-bitową</p></error>"
-                            .to_string();
-                    }
-                    else{
-                        return "<error><p>Method Number couldn't be parsed to 8-bit u_int</p></error>"
-                            .to_string();
-                    }
-                }
-            }
-            else{
-                if *lang == Language::Polish{
-                    return "<error><p>Nie udało się przetworzyć metody</p></error>".to_string();
-                }
-                else{
-                    return "<error><p>Couldn't parse method</p></error>".to_string();
-                }
-            }
-        }
-        None => {
-            if *lang == Language::Polish{
-                return "<error>
-                <p>Nie udało się znaleźć pola nazwanego 'metody'</p></error>".to_string();
-            }
-            else{
-                return "<error><p>Couldn't find argument named 'method'</p>
-                </error>".to_string();
-            }
+async fn handle_custom_request
+(request: &str, db: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>, cookies: &HashMap<String, String>) 
+-> String
+{
+    // request example: /?msat/version&method=POST+1&version=10&args=20
+    
+    let parsed_request = match Request::from_str(request).parse(){
+        Ok(v) => v,
+        Err(_) => {
+            return lang.english_or("<error><p>Server couldn't parse request</p></error>", 
+                "<error><p>Serwer nie mógł przetworzyć zapytania</p></error>");
         }
     };
-
-    if let Some(password) = args.get("password"){
-        if let Some(set_password) = shared_components::password::get_password().await{
-            if set_password != *password
+    if let (Some(pswd), Some(set_conf)) = (parsed_request.args.get("password"), get_config().await){
+        let set_pswd = set_conf.password;
+        #[allow(warnings)]
+        if pswd != &set_pswd || pswd.is_empty() && cookies.get("password").unwrap_or(&"".to_string()) != &set_pswd
             {
-                if method == "PER" && method_num == 1{
-                    return web::login(*lang);
-                }
-                else{
-                    if *lang == Language::Polish{
-                        return "<error>
-                        <p>Wprowadzone złe hasło</p></error>".to_string();
-                    }
-                    else    {
-                    return "<error><p>Wrong password was entered</p>
-                        </error>".to_string();
-                    }
+                if parsed_request.req_type != RequestType::Other("PAS".to_string()) && parsed_request.req_numb != 0{
+                    return lang.english_or("<error><p>Bad password</p></error>", "<error><p>Złe hasło</p></error>")
                 }
             }
-            else{
-                if method == "PER" && method_num == 1 && set_password == *password{
-                    return "true".to_string();
-                }
-            }
-        }
-        else{
-            if *lang == Language::Polish{
-                return "<error><p>Nie udało się uzyskać hasła, spytaj administratora</p></error>".to_string();
-            }
-            else{
-                return "<error><p>Couldn't get password, ask admin</p></db_row></error>".to_string();
-            }
-        }
     }
     else{
-        if *lang == Language::Polish{
-            return "<error><p>Nie znaleziono hasła</p></error>".to_string();
-        }
-        else{
-            return "<error><p>Couldn't find password</p></error>".to_string();
-        }
+        return lang.english_or("<error><p>Authentication Error</p></error>", "<error><p>Błąd autentyntykacji</p></error>")
     }
 
-    match method{
-        "GET" => {
-            match method_num{
-                0 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM Lessons";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(Lesson{
-                                week_day: row.get(0).unwrap_or(0),
-                                class_id: row.get(1).unwrap_or(0),
-                                lesson_hour: row.get(2).unwrap_or(0),
-                                teacher_id: row.get(3).unwrap_or(0),
-                                subject_id: row.get(4).unwrap_or(0),
-                                classroom_id: row.get(5).unwrap_or(0)
-                            })
-                        })
-                        {
-                            let (classroom_hashmap, class_hashmap, subject_hashmap, teacher_hashmap) = 
-                                (
-                                    get_classrooms(&database),
-                                    get_classes(&database),
-                                    get_subjects(&database),
-                                    get_teachers(&database)
-                                );
-                            if class_hashmap.len() == 0 || classroom_hashmap.len() == 0 || subject_hashmap.len() == 0{
-                                if *lang == Language::Polish{
-                                    return 
-                                    "<status><p>Nie znaleziono Danych, wypełnij bazę danych na początku</p></status>".to_string();
-                                }
-                                else{
-                                    return 
-                                    "<status><p>No Data found, Fill out the database first</p></status>".to_string();
-                                }
-                            }
-                            let filtered_iter : Vec<Lesson> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| 
-                                s.class_id!=0&&s.lesson_hour!=0&&s.teacher_id!=0&&s.subject_id!=0
-                                &&s.classroom_id!=0&&s.week_day!=0)
-                                .collect();
-                            let mut to_return : String = String::from("");                    
-                            let mut sorted_map : BTreeMap<(u16, u8, u8), (u16, u16, u16)> = BTreeMap::new();
-                            for lesson in filtered_iter{
-                                let (ci, wd, lh, si, cli, ti) = 
-                                (lesson.class_id, lesson.week_day, lesson.lesson_hour,
-                                 lesson.subject_id, lesson.classroom_id, lesson.teacher_id);
-                                sorted_map.insert((ti, wd, lh), (si, cli, ci));
-                            }
-                            let (mut lc, mut llh) = (&0, &0);
-                            for (class, _, lessonh) in sorted_map.keys(){
-                                if lc < class{
-                                    lc = class;
-                                }
-                                if llh < lessonh {
-                                    llh = lessonh;
-                                }
-                            }
-                            for teacher in 1..=*lc{
-                                let (first_name, last_name) : (String, String) = match teacher_hashmap.get(&teacher)
-                                {
-                                    Some(s) => s.clone(),
-                                    None => {
-                                        (teacher.to_string(), "".to_string())
-                                    }
-                                };
-                                let lesson = if *lang == Language::Polish{
-                                    "Lekcja"
-                                }
-                                else{
-                                    "Lesson"
-                                };
-                                to_return.push_str(&format!("<class id='{teacher}'><p>{} {}</p><w>\n", 
-                                        first_name, last_name));
-                                for weekd in 1..=7u8{
-                                    to_return.push_str(&format!("<weekd id='w{weekd}'><p>{}</p>\n", weekd_to_string(&*lang, weekd)));
-                                    for lesson_num in 1..=*llh{
-                                        if let Some((si, cli, ci)) = sorted_map.get(&(teacher, weekd, lesson_num)){
-                                            to_return.push_str(
-                                            &format!
-                                            ("<lesson><p><strong>{lesson} {lesson_num}</strong></p>
-                                             <p>{}</p><p>{}</p><p>{}</p></lesson>\n",
-                                                    subject_hashmap.get(si).unwrap_or(&si.to_string()),
-                                                    class_hashmap.get(ci).unwrap_or(&ci.to_string()),
-                                                    classroom_hashmap.get(cli).unwrap_or(&cli.to_string())));
-                                        }
-                                    }
-                                    to_return.push_str("</weekd>\n");
-                                }
-                                to_return.push_str("</w></class>\n");
-                            }
-                            return to_return;
-                        };
-                    };
+    let args = parsed_request.args;
 
-                }
+    match parsed_request.req_type{
+        RequestType::GET => {
+            match parsed_request.req_numb{
                 1 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM Lessons";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(Lesson{
-                                week_day: row.get(0).unwrap_or(0),
-                                class_id: row.get(1).unwrap_or(0),
-                                lesson_hour: row.get(2).unwrap_or(0),
-                                teacher_id: row.get(3).unwrap_or(0),
-                                subject_id: row.get(4).unwrap_or(0),
-                                classroom_id: row.get(5).unwrap_or(0)
-                            })
-                        })
+                    if let Some(class_id) = args.get("class_id") 
+                    {
+                        if let Ok(class) = class_id.parse::<u16>()
                         {
-                            let (class_hashmap, classroom_hashmap, subject_hashmap, teacher_hashmap) = 
-                                (
-                                    get_classes   (&database),
-                                    get_classrooms(&database),
-                                    get_subjects  (&database),
-                                    get_teachers  (&database)
-                                );
-                            let filtered_iter : Vec<Lesson> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| 
-                                s.class_id!=0&&s.lesson_hour!=0&&s.teacher_id!=0&&s.subject_id!=0
-                                &&s.classroom_id!=0&&s.week_day!=0)
-                                .collect();
-                            let mut to_return : String = String::from("");                    
-                            let mut sorted_map : BTreeMap<(u16, u8, u8), (u16, u16, u16)> = BTreeMap::new();
-                            for lesson in filtered_iter{
-                                let (ci, wd, lh, si, cli, ti) = 
-                                (lesson.class_id, lesson.week_day, lesson.lesson_hour,
-                                 lesson.subject_id, lesson.classroom_id, lesson.teacher_id);
-                                sorted_map.insert((ci, wd, lh), (si, cli, ti));
-                            }
-                            let (mut lc, mut llh) = (&0, &0);
-                            for (class, _, lessonh) in sorted_map.keys(){
-                                if lc < class{
-                                    lc = class;
-                                }
-                                if llh < lessonh {
-                                    llh = lessonh;
-                                }
-                            }
-                            let lesson = if *lang == Language::Polish{
-                                "Lekcja"
-                            }
-                            else{
-                                "Lesson"
-                            };
-                            for class in 1..=*lc{
-                                to_return.push_str(&format!("<class id='{class}'><p>{}</p><w>\n", 
-                                        class_hashmap.get(&class).unwrap_or(&class.to_string())));
-                                for weekd in 1..=7u8{
-                                    to_return.push_str(&format!("   <weekd id='w{weekd}'><p>{}</p>\n", 
-                                            weekd_to_string(&*lang, weekd)));
-                                    for lesson_num in 1..=*llh{
-                                        if let Some((si, cli, ti)) = sorted_map.get(&(class, weekd, lesson_num)){
-                                            let (first_name, last_name) : (String, String) = match teacher_hashmap.get(ti){
-                                                Some(s) => s.clone(),
-                                                None => {
-                                                    (ti.to_string(), "".to_string())
-                                                }
-                                            };
-                                            to_return.push_str(
-                                                &format!("<lesson><p><strong>{lesson} {}</strong></p><p>{}</p><p>{} {}</p><p>{}</p></lesson>\n",
-                                                    lesson_num,
-                                                    subject_hashmap.get(si).unwrap_or(&si.to_string()),
-                                                    first_name, last_name,
-                                                    classroom_hashmap.get(cli).unwrap_or(&cli.to_string())));
-                                        }
+                            if let Ok(lessons) = get_lessons_by_class_id(class, &*db.lock().await){
+                                type LessonData = (String, String, String, String, String);
+                                let mut unwrapped_lessons : BTreeMap<(u8, u16), LessonData> = 
+                                    BTreeMap::new();
+                                for lesson in lessons{
+                                    if let (Some(teacher), Some(classroom), Some(subject), Some(lessonh), Some(weekd), 
+                                        Some(start_hour), Some(start_minute), Some(end_hour), Some(end_minute)) = 
+                                    (lesson.teacher, lesson.classroom, lesson.subject, lesson.lessonh.lesson_hour, 
+                                     lesson.weekday, lesson.lessonh.start_hour, lesson.lessonh.start_minute, 
+                                     lesson.lessonh.end_hour, lesson.lessonh.start_minute)
+                                    {
+                                        unwrapped_lessons.insert(
+                                        (weekd, lessonh), 
+                                        (subject, classroom, teacher, 
+                                         format!("{:2}:{:2}", start_hour, start_minute), 
+                                         format!("{:2}:{:2}", end_hour, end_minute))
+                                        );
                                     }
-                                    to_return.push_str("</weekd>\n");
                                 }
-                                to_return.push_str("</w></class>\n");
+                                let mut current_weekd : u8 = 0;
+                                let mut to_return     : String = "<ltable>".to_string();
+                                
+                                for (weekd, lessonh) in unwrapped_lessons.keys(){
+                                    if &current_weekd != weekd{
+                                        if current_weekd != 0{
+                                            to_return.push_str("<wd>");
+                                        }
+                                        else{
+                                            to_return.push_str("</wd><wd>");
+                                        }
+                                        current_weekd = *weekd;
+                                    }
+                                    if let Some((subject, classroom, teacher, start, end)) = 
+                                        unwrapped_lessons.get(&(*weekd, *lessonh))
+                                    {
+                                        to_return.push_str(&format!("<les><p>{}</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p></les>", 
+                                                subject, classroom, teacher, start, end));
+                                    }
+                                }
+                                to_return.push_str("</ltable>");
+                                return to_return
                             }
-                            return to_return;
-                        };
-                    };
+                        }
+                    }
                 }
                 2 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM Teachers";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(Teacher{
-                                teacher_id: row.get(0).unwrap_or(0),
-                                first_name: row.get(1).unwrap_or("".to_string()),
-                                last_name: row.get(2).unwrap_or("".to_string())
-                            })
-                        })
+                    if let Some(teacher_str) = args.get("teacher_id")
+                    {
+                        if let Ok(teacher_id) = teacher_str.parse::<u16>()
                         {
-                            let filtered_iter : Vec<Teacher> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| s.first_name.is_empty()==false&&s.last_name.is_empty()==false&&s.teacher_id!=0)
-                                .collect();
-                            let mut to_return : String = format!("<db_col>
-                                <db_row>
-                                <p>{}</p>
-                                <p>{}</p>
-                                <p>{}</p>
-                                </db_row>",
-                                if *lang == Language::Polish{
-                                    "ID Nauczyciela"
+                            if let Ok(duties) = get_duties_for_teacher(teacher_id, &*db.lock().await){
+                                let mut filtered : BTreeMap<u16, (String, String, String)> = BTreeMap::new();
+                                for d in duties{
+                                    if let (Some(place), Some(breakn), Some(starth), Some(startm), Some(endh), Some(endm)) = 
+                                    (d.place, d.break_num.lesson_hour, d.break_num.start_hour, d.break_num.start_minute, 
+                                     d.break_num.end_hour, d.break_num.end_minutes)
+                                    {
+                                        filtered.insert(breakn, (place, format!("{:2}:{:2}", starth, startm), format!("{:2}:{:2}", endh, endm)));
+                                    }
                                 }
-                                else{
-                                    "Teacher ID"
-                                },
-                                if *lang == Language::Polish{
-                                    "Imię"
+                                if filtered.is_empty(){
+                                    return lang.english_or("<p>You don't have duties today!</p>", "<p>Nie masz dzisiaj dyżuru!</p>");
                                 }
-                                else{
-                                    "First Name"
-                                },
-                                if *lang == Language::Polish{
-                                    "Nazwisko"
+                                let mut to_return = "<duties>".to_string();
+                                for breakn in filtered.keys(){
+                                    if let Some((place, start, end)) = filtered.get(breakn){
+                                        to_return.push_str(&format!("<entry><p>{}</p><p>{} - {}</p></entry>", place, start, end));
+                                    }
                                 }
-                                else{
-                                    "Last Name"
-                                }
-                            );
-                            for e in filtered_iter{
-                                to_return.push_str(
-                                    format!("<db_row>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p></db_row>", e.teacher_id,e.first_name,e.last_name).as_str()
-                                );
+                                return to_return;
                             }
-                            to_return.push_str("</db_col>");
-                            return to_return;
-                        };
-                    };
+                        }
+                    }
                 }
                 3 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM Duties";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(Duty{
-                                break_num: row.get(0).unwrap_or(0),
-                                teacher_id: row.get(1).unwrap_or(0),
-                                break_place: row.get(2).unwrap_or(0.to_string()),
-                                week_day: row.get(3).unwrap_or(0),
-                            })
-                        })
-                        {
-                            let filtered_iter : Vec<Duty> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| s.break_num!=0&&s.teacher_id!=0&&&s.break_place!=""&&s.week_day!=0)
-                                .collect();
-                            let mut to_return : String = format!("<db_col>
-                                <db_row>
-                                <p>{}</p>
-                                <p>{}</p>
-                                <p>{}</p>
-                                <p>{}</p>
-                                </db_row>",
-                                if *lang == Language::Polish{
-                                    "Numer Przerwy"
+                    if let Some(teacherid_str) = args.get("teacher_id"){
+                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
+                            if let Ok(lessons) = get_lessons_by_teacher_id(teacher_id, &*db.lock().await){
+                                type LessonData = (String, String, String, String);
+                                let mut unwrapped_lessons : BTreeMap<(String, u8, u16), LessonData> = 
+                                    BTreeMap::new();
+                                for lesson in lessons{
+                                    if let (Some(class), Some(classroom), Some(subject), Some(lessonh), Some(weekd), 
+                                        Some(start_hour), Some(start_minute), Some(end_hour), Some(end_minute)) = 
+                                    (lesson.class, lesson.classroom, lesson.subject, lesson.lessonh.lesson_hour, 
+                                     lesson.weekday, lesson.lessonh.start_hour, lesson.lessonh.start_minute, 
+                                     lesson.lessonh.end_hour, lesson.lessonh.start_minute)
+                                    {
+                                        unwrapped_lessons.insert(
+                                        (class, weekd, lessonh), 
+                                        (subject, classroom, 
+                                         format!("{:2}:{:2}", start_hour, start_minute), 
+                                         format!("{:2}:{:2}", end_hour, end_minute))
+                                        );
+                                    }
                                 }
-                                else{
-                                    "Break Number"
-                                },
-                                if *lang == Language::Polish{
-                                    "ID Nauczyciela"
+                                let mut current_class : String = "".to_string();
+                                let mut current_weekd : u8 = 0;
+                                let mut to_return     : String = "<ltable>".to_string();
+                                
+                                for (class, weekd, lessonh) in unwrapped_lessons.keys(){
+                                    if &current_class != class{
+                                        current_weekd = 0;
+                                        if current_class.is_empty(){
+                                            to_return.push_str("<cla>");
+                                        }
+                                        else{
+                                            to_return.push_str("</cla><cla>");
+                                        }
+                                        current_class = class.clone();
+                                    }
+                                    if &current_weekd != weekd{
+                                        if current_weekd != 0{
+                                            to_return.push_str("<wd>");
+                                        }
+                                        else{
+                                            to_return.push_str("</wd><wd>");
+                                        }
+                                        current_weekd = *weekd;
+                                    }
+                                    if let Some((subject, classroom, start, end)) = 
+                                        unwrapped_lessons.get(&(class.to_string(), *weekd, *lessonh))
+                                    {
+                                        to_return.push_str(&format!("<les><p>{}</p><p>{}</p><p>{}</p><p>{}</p></les>", 
+                                                subject, classroom, start, end));
+                                    }
                                 }
-                                else{
-                                    "Teacher ID"
-                                },
-                                if *lang == Language::Polish{
-                                    "Miejsce Przerwy"
-                                }
-                                else{
-                                    "Break Place"
-                                },
-                                if *lang == Language::Polish{
-                                    "Dzień Tygodnia"
-                                }
-                                else{
-                                    "Week Day"
-                                }
-                            );
-                            for e in filtered_iter{
-                                to_return.push_str(
-                                    format!("<db_row>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p></db_row>", e.break_num,e.teacher_id,e.week_day,e.week_day).as_str()
-                                );
+                                to_return.push_str("</ltable>");
+                                return to_return
                             }
-                            to_return.push_str("</db_col>");
-                            return to_return;
-                        };
-                    };
+
+                        }
+                    }
                 }
                 4 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM Subjects";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(Subject{
-                                subject_id: row.get(0).unwrap_or(0),
-                                subject_name: row.get(1).unwrap_or("".to_string()),
-                            })
-                        })
-                        {
-                            let filtered_iter : Vec<Subject> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| s.subject_name.is_empty()==false&&s.subject_id!=0)
-                                .collect();
-                            let mut to_return : String = format!("<db_col>
-                                <db_row>
-                                <p>{}</p>
-                                <p>{}</p>
-                                </db_row>",
-                                if *lang == Language::Polish{
-                                    "ID Przedmiotu"
-                                }
-                                else{
-                                    "Subject ID"
-                                },
-                                if *lang == Language::Polish{
-                                    "Nazwa Przedmiotu"
-                                }
-                                else{
-                                    "Subject Name"
-                                }
-                            );
-                            for e in filtered_iter{
-                                to_return.push_str(
-                                    format!("<db_row>
-                                    <p>{}</p>
-                                    <p>{}</p></db_row>", e.subject_id,e.subject_name).as_str()
-                                );
-                            }
-                            to_return.push_str("</db_col>");
-                            return to_return;
-                        };
-                    };
-                }
-                5 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM Classes";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(Class{
-                                class_id: row.get(0).unwrap_or(0),
-                                class_name: row.get(1).unwrap_or("".to_string()),
-                            })
-                        })
-                        {
-                            let filtered_iter : Vec<Class> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| s.class_name.is_empty()==false&&s.class_id!=0)
-                                .collect();
-                            let mut to_return : String = format!("<db_col>
-                                <db_row>
-                                <p>{}</p>
-                                <p>{}</p>
-                                </db_row>",
-                                if *lang == Language::Polish{
-                                    "ID Klasy"
-                                }
-                                else{
-                                    "Class ID"
-                                },
-                                if *lang == Language::Polish{
-                                    "Nazwa Klasy"
-                                }
-                                else{
-                                    "Class Name"
-                                }
-                            );
-                            for e in filtered_iter{
-                                to_return.push_str(
-                                    format!("<db_row>
-                                    <p>{}</p>
-                                    <p>{}</p></db_row>", e.class_id,e.class_name).as_str()
-                                );
-                            }
-                            to_return.push_str("</db_col>");
-                            return to_return;
-                        };
-                    };
-                }
-                6 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM Classrooms";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(Classroom{
-                                classroom_id: row.get(0).unwrap_or(0),
-                                classroom_name: row.get(1).unwrap_or("".to_string()),
-                            })
-                        })
-                        {
-                            let filtered_iter : Vec<Classroom> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| s.classroom_id!=0&&s.classroom_name.is_empty()==false)
-                                .collect();
-                            let mut to_return : String = format!("<db_col>
-                                <db_row>
-                                <p>{}</p>
-                                <p>{}</p>
-                                </db_row>",
-                                if *lang == Language::Polish{
-                                    "Numer Klasy (Pomieszczenie)"
-                                }
-                                else{
-                                    "Classroom Number"
-                                },
-                                if *lang == Language::Polish{
-                                    "Nazwa Klasy (Pomieszczenie)"
-                                }
-                                else{
-                                    "Classroom Name"
-                                }
-                            );
-                            for e in filtered_iter{
-                                to_return.push_str(
-                                    format!("<db_row>
-                                    <p>{}</p>
-                                    <p>{}</p></db_row>", e.classroom_id,e.classroom_name).as_str()
-                                );
-                            }
-                            to_return.push_str("</db_col>");
-                            return to_return;
-                        };
-                    };
-                }
-                7 => {    
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM LessonHours";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(LessonHour{
-                                lesson_num: row.get(0).unwrap_or(0),
-                                start_time: row.get(1).unwrap_or(0),
-                                end_time: row.get(2).unwrap_or(0)
-                            })
-                        })
-                        {
-                            let filtered_iter : Vec<LessonHour> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| s.lesson_num!=0&&s.start_time!=0&&s.end_time!=0)
-                                .collect();
-                            let mut to_return : String = format!("<db_col>
-                                <db_row>
-                                <p>{}</p>
-                                <p>{}</p>
-                                <p>{}</p>
-                                </db_row>",
-                                if *lang == Language::Polish{
-                                    "Numer Lekcji"
-                                }
-                                else{
-                                    "Lesson Number"
-                                },
-                                if *lang == Language::Polish{
-                                    "Godzina Rozpoczęcia"
-                                }
-                                else{
-                                    "Start Time"
-                                },
-                                if *lang == Language::Polish{
-                                    "Godzina Zakończenia"
-                                }
-                                else{
-                                    "End Time"
-                                }
-                            );
-                            for e in filtered_iter{
-                                to_return.push_str(
-                                    format!("<db_row>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p></db_row>", e.lesson_num,e.start_time,e.end_time).as_str()
-                                );
-                            }
-                            to_return.push_str("</db_col>");
-                            return to_return;
-                        };
-                    };
-                }
-                8 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM BreakHours";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(BreakHours{
-                                break_num: row.get(0).unwrap_or(0),
-                                start_time: row.get(1).unwrap_or(0),
-                                end_time: row.get(2).unwrap_or(0)
-                            })
-                        })
-                        {
-                            let filtered_iter : Vec<BreakHours> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| s.break_num!=0&&s.start_time!=0&&s.end_time!=0)
-                                .collect();
-                            let mut to_return : String = format!("<db_col>
-                                <db_row>
-                                <p>{}</p>
-                                <p>{}</p>
-                                <p>{}</p>
-                                </db_row>",
-                                if *lang == Language::Polish{
-                                    "Numer Przerwy"
-                                }
-                                else{
-                                    "Break Number"
-                                },
-                                if *lang == Language::Polish{
-                                    "Godzina Rozpoczęcia"
-                                }
-                                else{
-                                    "Start Time"
-                                },
-                                if *lang == Language::Polish{
-                                    "Godzina Zakończecia"
-                                }
-                                else{
-                                    "End Time"
-                                }
-                            );
-                            for e in filtered_iter{
-                                to_return.push_str(
-                                    format!("<db_row>
-                                    <p>{}</p>
-                                    <p>{}</p>
-                                    <p>{}</p></db_row>", e.break_num,e.start_time,e.end_time).as_str()
-                                );
-                            }
-                            to_return.push_str("</db_col>");
-                            return to_return;
-                        };
-                    };
-                }
-                _ => {
-                }
-            }
-        }
-        "POST" => {
-            match method_num{
-                0 => {
-                    let query = "INSERT INTO BreakHours 
-                        (break_num, start_time, end_time)
-                        VALUES (?1, ?2, ?3)
-                        ON CONFLICT (break_num)
-                        DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time";
-                    if let (Some(break_num), Some(start_time), Some(end_time)) 
-                        = (args.get("arg1"), args.get("arg2"), args.get("arg3"))
-                    {
-                        if let (Some((_, value)), Some((_, value1)), Some((_, value2))) = 
-                        (break_num.split_once('='),start_time.split_once('='),end_time.split_once('='))
-                        {
-                           let database = db.lock().await;
-                           match database.execute(&query, [value.into(), value1, value2]){
-                                Ok(_) => return database_insert_error_msg(&*lang),
-                                Err(_) => return database_insert_success_msg(&*lang)
-                           }
-                        }
-                    };
-                    if *lang == Language::Polish{
-                        return "<error><p>Napotkano błąd</p></error>".to_string()
-                    }
-                    else{
-                        return "<error><p>Error occured</p></error>".to_string()
-                    }
-                }
-                1 => {
-                    let query = "INSERT INTO Lessons 
-                            (week_day, class_id, classroom_id, subject_id, teacher_id, lesson_hour) 
-                            VALUES (?1,?2,?3,?4,?5,?6)
-                            ON CONFLICT (class_id, lesson_hour, week_day) 
-                            DO UPDATE SET classroom_id = excluded.classroom_id, subject_id = excluded.subject_id,
-                            teacher_id = excluded.teacher_id;";
-                    if let (Some(class_id), Some(classroom_id), Some(subject_id), Some(teacher_id), Some(lesson_num), Some(week_day)) =
-                    (args.get("arg1"), args.get("arg2"), args.get("arg3"), args.get("arg4"), args.get("arg5"), args.get("arg6"))
-                    {
-                        if let (Some((_, class)), Some((_, classroom)), Some((_, subject)), Some((_, teacher)), Some((_, lesson)), Some((_, weekd))) =
-                        (class_id.split_once('='), classroom_id.split_once('='), subject_id.split_once('='), teacher_id.split_once('='),
-                         lesson_num.split_once('='), week_day.split_once('=')) 
-                        {
-                            let database = db.lock().await;
-                            
-                            return match database.execute(&query, [weekd, class, classroom, subject, teacher, lesson])
+                    if let Some(tid_str) = args.get("teacher_id"){
+                        if let Ok(tid) = tid_str.parse::<u16>(){
+                            match manipulate_database(
+                                    MainpulationType::Get(backend::GET::Teacher 
+                                        { teacher_id: tid }
+                                    ), 
+                                    &*db.lock().await)
                             {
-                                Ok(_) => database_insert_success_msg(&*lang),
-                                Err(_) => database_insert_error_msg(&*lang)
-                            }
-                            
-                        }
-                    }
-                    else{
-                        return database_insert_error_msg(&*lang);
-                    }
-                }
-                2 => {
-                    if let (Some(teacher_id), Some(first_name), Some(last_name)) = (args.get("arg1"), args.get("arg2"), args.get("arg3"))
-                    {
-                        if let (Some((_, teacher)), Some((_, first_name1)), Some((_, last_name1))) = 
-                        (teacher_id.split_once('='), first_name.split_once('='), last_name.split_once('='))
-                        {
-                            let query = "INSERT INTO Teachers (teacher_id, first_name, last_name) VALUES (?1, ?2, ?3) 
-                            ON CONFLICT (teacher_id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name";
-                            let database = db.lock().await;
-                            match database.execute(&query, [&teacher, first_name1, last_name1]){
-                                Ok(_) => return database_insert_success_msg(&*lang),
-                                Err(_) => return database_insert_error_msg(&*lang)
-                            }
-                        }
-                    }
-                    else{
-                        return database_insert_error_msg(&*lang);
-                    }
-                }
-                3 => {
-                    let query = "INSERT INTO Duties (lesson_hour, teacher_id, classroom_id, week_day) VALUES (?1, ?2, ?3, ?4)
-                        ON CONFLICT (lesson_hour, teacher_id, week_day) DO UPDATE SET classroom_id = excluded.classroom_id";
-                    if let (Some(lesson_hour), Some(teacher_id), Some(classroom_id), Some(week_day)) = 
-                    (args.get("arg1"), args.get("arg2"), args.get("arg3"), args.get("arg4")) 
-                    {
-                        if let (Some((_, lesson)), Some((_, teacher)), Some((_, classroom)), Some((_, weekd))) =
-                        (lesson_hour.split_once('='), teacher_id.split_once('='), classroom_id.split_once('='), week_day.split_once('='))
-                        {
-                            let database = db.lock().await;
-                            match database.execute(&query, [lesson, teacher, classroom, weekd]){
-                                Ok(_) => return database_insert_success_msg(&*lang),
-                                Err(_) => return database_insert_error_msg(&*lang)
-                            }
-                        }
-                    };
-                }
-                4 => {
-                    let query = "INSERT INTO Subjects (subject_id, subject_name) VALUES (?1, ?2)
-                        ON CONFLICT (subject_id) DO UPDATE SET subject_name = excluded.subject_name";
-                    if let (Some(subject_id), Some(subject_name)) = (args.get("arg1"), args.get("arg2"))
-                    {
-                        if let (Some((_, id)), Some((_, name))) = (subject_id.split_once('='), subject_name.split_once('='))
-                        {
-                            let database = db.lock().await;
-                            match database.execute(&query, [id, name]){
-                                Ok(_) => return database_insert_success_msg(&*lang),
-                                Err(_) => return database_insert_error_msg(&*lang)
-                            }
-                        }
-                    };
-                }
-                5 => {
-                    let query = "INSERT INTO Classes (class_id, class_name) VALUES (?1, ?2)
-                        ON CONFLICT (class_id) DO UPDATE SET class_name = excluded.class_name";
-                    if let (Some(class_id), Some(class_name)) = (args.get("arg1"), args.get("arg2")) 
-                    {
-                        if let (Some((_, id)), Some((_, name))) = (class_id.split_once('='), class_name.split_once('=')){
-                            let database = db.lock().await;
-                            match database.execute(&query, [id, name]){
-                                Ok(_) => return database_insert_success_msg(&*lang),
-                                Err(_) => return database_insert_error_msg(&*lang)
-                            }
-                        }
-                    };
-                }
-                6 => {
-                    let query = "INSERT INTO Classrooms (classroom_id, classroom_name) VALUES (?1, ?2)
-                        ON CONFLICT (classroom_id) DO UPDATE SET classroom_name = excluded.classroom_name";
-                    if let (Some(classroom_id), Some(classroom_name)) = (args.get("arg1"), args.get("arg2")) 
-                    {
-                        if let (Some((_, id)), Some((_, name))) = (classroom_id.split_once('='), classroom_name.split_once('=')){
-                            let database = db.lock().await;
-                            match database.execute(&query, [id, name]){
-                                Ok(_) => return database_insert_success_msg(&*lang),
-                                Err(_) => return database_insert_error_msg(&*lang)
-                            }
-                        }
-                    };
-                }
-                7 => {
-                    let query = "INSERT INTO LessonHours (lesson_num, start_time, end_time) VALUES (?1, ?2, ?3)
-                        ON CONFLICT (lesson_num) DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time";
-                    if let (Some(lesson_num), Some(start_time), Some(end_time)) = (args.get("arg1"), args.get("arg2"), args.get("arg3"))
-                    {
-                        if let (Some((_, lesson)), Some((_, start)), Some((_, end))) = 
-                        (lesson_num.split_once('='), start_time.split_once('='), end_time.split_once('='))
-                        {
-                            let database = db.lock().await;
-                            match database.execute(&query, [lesson, start, end]){
-                                Ok(_) => return database_insert_success_msg(&*lang),
-                                Err(_) => return database_insert_error_msg(&*lang)
-                            }
-                        }
-                    }
-                }
-                _ => {
-                }
-            }
-        }
-        "PER" => {
-            match method_num{
-                0 => {
-                    let database = db.lock().await;
-                    let query = "SELECT * FROM Lessons";
-                    if let Ok(mut stmt) = database.prepare(&query){
-                        if let Ok(iter) = stmt.query_map([], |row| {
-                            Ok(Lesson{
-                                week_day: row.get(0).unwrap_or(0),
-                                class_id: row.get(1).unwrap_or(0),
-                                lesson_hour: row.get(2).unwrap_or(0),
-                                teacher_id: row.get(3).unwrap_or(0),
-                                subject_id: row.get(4).unwrap_or(0),
-                                classroom_id: row.get(5).unwrap_or(0)
-                            })
-                        })
-                        {
-                            let filtered_iter : Vec<Lesson> 
-                                = iter.filter(|s| s.is_ok())
-                                .map(|s| s.unwrap())
-                                .filter(|s| 
-                                s.class_id!=0&&s.lesson_hour!=0&&s.teacher_id!=0&&s.subject_id!=0
-                                &&s.classroom_id!=0&&s.week_day!=0)
-                                .collect();
-                            let mut sorted_map : BTreeMap<(u8, u8), (u16, u16, u16)> = BTreeMap::new();
-                            let teacher_id = 1;
-                            for lesson in filtered_iter{
-                                let (ci, wd, lh, si, cli, ti) = 
-                                (lesson.class_id, lesson.week_day, lesson.lesson_hour,
-                                 lesson.subject_id, lesson.classroom_id, lesson.teacher_id);
-                                if ti == teacher_id {
-                                    sorted_map.insert((wd, lh), (si, cli, ci));
+                                Ok(tn) => return tn,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
                                 }
                             }
-
-                            let x = Orb::Data(("Fizyka".to_string(), "Sala Fizyczno-Chemiczna".to_string(), "Klasa 8".to_string()));
-                            return dashboard("Mateus", Some((1, 1)), x, Language::Polish, sorted_map, &database);
                         }
-                    };
-                }
-                1 => {
-                    return "true".to_string();
-                }
-                2 => {
-                    return web::post_login(&*lang);
+                    }
                 }
                 _ => {}
             }
         }
-        _ => {
+        RequestType::POST => {
+            match parsed_request.req_numb{
+                // Lesson
+                1 => {
+                    if let (Some(weekday_str), Some(classid_str), Some(classroomid_str), 
+                        Some(teacherid_str), Some(subjectid_str), Some(semester_str),
+                        Some(academicyear_str), Some(lessonhour_str)) = 
+                        (args.get("weekday"), args.get("class_id"), args.get("classroom_id"), args.get("teacher_id"), 
+                         args.get("subject_id"), args.get("semester"), args.get("academic_year"), args.get("lesson_hour"))
+                    {
+                        if let (Ok(weekday), Ok(class_id), Ok(classroom_id), Ok(teacher_id), Ok(subject_id), Ok(semester), Ok(academic_year),
+                            Ok(lesson_hour)) = 
+                        (weekday_str.parse::<u8>(),classid_str.parse::<u16>(),classroomid_str.parse::<u16>(),teacherid_str.parse::<u16>(),
+                        subjectid_str.parse::<u16>(), semester_str.parse::<u8>(), academicyear_str.parse::<u8>(), lessonhour_str.parse::<u16>())
+                        {
+                            match manipulate_database(
+                            MainpulationType::Insert
+                            (backend::POST::Lesson
+                            (Some((weekday, class_id, classroom_id, teacher_id, subject_id, lesson_hour, semester, academic_year)))), &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Year
+                2 => {
+                    if let (Some(academicyear_str), Some(yearname_str), Some(startdate_str), Some(enddate_str)) = 
+                    (args.get("academic_year"), args.get("year_name"), args.get("start_date"), args.get("end_date")){
+                        if let Ok(academic_year) = academicyear_str.parse::<u8>(){
+                            match manipulate_database(MainpulationType::Insert(backend::POST::Year(Some(
+                            (academic_year, yearname_str.to_string(), startdate_str.to_string(), enddate_str.to_string()))))
+                                ,&*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            };
+                        }
+                    }
+                }
+                // Duty
+                3 => {
+                    if let (Some(weekday_str), Some(breaknum_str), Some(teacherid_str),Some(semester_str), Some(academicyear_str), Some(placeid_str)) = 
+                    (args.get("weekday"), args.get("break_num"), args.get("teacher_id"), 
+                     args.get("semester"), args.get("academic_year"), args.get("place_id"))
+                    {
+                        if let (Ok(weekday), Ok(break_num), Ok(teacher_id), Ok(semester), Ok(academic_year), Ok(place_id)) = 
+                        (weekday_str.parse::<u8>(),breaknum_str.parse::<u8>(),teacherid_str.parse::<u16>(),
+                        semester_str.parse::<u8>(), academicyear_str.parse::<u8>(),placeid_str.parse::<u16>())
+                        {
+                            match manipulate_database(MainpulationType::Insert
+                                (backend::POST::Duty(Some((weekday, break_num, teacher_id, place_id, semester, academic_year)))), 
+                                &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Break
+                4 => {
+                    if let (Some(breaknum_str), Some(starthour_str), Some(startminute_str), Some(endhour_str), Some(endminute_str)) = 
+                    (args.get("break_num"), args.get("start_hour"), args.get("start_minute"), args.get("end_hour"), args.get("end_minute"))
+                    {
+                        if let (Ok(break_num), Ok(start_hour), Ok(start_minute), Ok(end_hour), Ok(end_minute)) = 
+                        (breaknum_str.parse::<u8>(),starthour_str.parse::<u8>(),startminute_str.parse::<u8>(),
+                         endhour_str.parse::<u8>(),endminute_str.parse::<u8>())
+                        {
+                            match manipulate_database(MainpulationType::Insert(
+                            backend::POST::Break(Some((break_num, start_hour, start_minute, end_hour, end_minute))))
+                                , &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Semester
+                5 => {
+                    if let (Some(semester_str), Some(semester_name), Some(start_date), Some(end_date)) = 
+                    (args.get("semester"),args.get("semester_name"),args.get("start_date"),args.get("end_date"))
+                    {
+                        if let Ok(semester) = semester_str.parse::<u8>(){
+                            match manipulate_database(MainpulationType::Insert(
+                                    backend::POST::Semester(
+                                        Some((semester, semester_name.to_string(), start_date.to_string(), end_date.to_string())))), &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // LessonHour 
+                6 => {
+                    if let (Some(lessonnum_str), Some(starthour_str), Some(startminute_str), Some(endhour_str), Some(endminute_str)) = 
+                    (args.get("lesson_num"), args.get("start_hour"), args.get("start_minute"), args.get("end_hour"), args.get("end_minute"))
+                    {
+                        if let (Ok(lesson_num), Ok(start_hour), Ok(start_minute), Ok(end_hour), Ok(end_minute)) = 
+                        (lessonnum_str.parse::<u16>(),starthour_str.parse::<u8>(),startminute_str.parse::<u8>(),
+                         endhour_str.parse::<u8>(),endminute_str.parse::<u8>())
+                        {
+                            match manipulate_database(MainpulationType::Insert(
+                            backend::POST::LessonHours(Some((lesson_num, start_hour, start_minute, end_hour, end_minute))))
+                                , &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Teacher
+                7 => {
+                    if let (Some(teacherid_str), Some(teacher_name)) = (args.get("teacher_id"), args.get("teacher_name")){
+                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Insert(backend::POST::Teacher(Some ((teacher_id, teacher_name.to_string())) )), &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Class
+                8 => {
+                    if let (Some(teacherid_str), Some(teacher_name)) = (args.get("class_id"), args.get("class_name")){
+                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Insert(backend::POST::Class(Some ((teacher_id, teacher_name.to_string())) )), &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Classroom
+                9 => {
+                    if let (Some(teacherid_str), Some(teacher_name)) = (args.get("classroom_id"), args.get("classroom_name")){
+                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Insert(backend::POST::Classroom(Some ((teacher_id, teacher_name.to_string())) )), &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Subject
+                10 => {
+                    if let (Some(teacherid_str), Some(teacher_name)) = (args.get("subject_id"), args.get("subject_name")){
+                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Insert(backend::POST::Subject(Some ((teacher_id, teacher_name.to_string())) )), &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Corridors
+                11 => {
+                    if let (Some(teacherid_str), Some(teacher_name)) = (args.get("place_id"), args.get("place_name")){
+                        if let Ok(teacher_id) = teacherid_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Insert(backend::POST::Corridors(Some ((teacher_id, teacher_name.to_string())) )), &*db.lock().await)
+                            {
+                                Ok(v) => return v,
+                                Err(error) => {
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
+        RequestType::Other(val) => {
+            #[allow(warnings)]
+            match (val.as_str(), parsed_request.req_numb){
+                ("PAS", 0) => {
+                    if let (Some(password), Some(set_password)) = (&args.get("password"), get_config().await.and_then(|s| Some(s.password))){
+                        return (**password == set_password).to_string();
+                    }
+                    todo!()
+                }
+                _ => {}
+            }
+        }
+        _ => {}
     }
-    if *lang == Language::Polish{
-        return "<error><p>Nie byliśmy w stanie zdobyć żadnych informacji</p></error>".to_string();
-    }
-    else{
-        return "<error><p>We coudln't get any data from server</p></error>".to_string();
-    }
+
+
+    lang.english_or(
+        "<error><p>We coudln't get any data from server</p></error>", 
+        "<error><p>Nie byliśmy w stanie zdobyć żadnych informacji</p></error>")
+    
 }
 
-fn not_found(tcp: &mut TcpStream) {
-    if let Err(error) = tcp.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n<h1>404 - Not Found</h1>"){
-        cli::print_error("Error Occured while sending 404 to client", error);
+async fn not_found(tcp: &mut TcpStream) {
+    if let Err(error) = tcp.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n<h1>404 - Not Found</h1>").await{
+        visual::error(Some(error), "Error Occured while sending 404 to client");
     }
     else{
-        cli::debug_log("Returned 404 to Client");
+        visual::debug("Returned 404 to Client");
     }
 }
 
@@ -1059,30 +667,14 @@ fn get_types(line: String) -> Vec<String> {
     let mut types: Vec<String> = vec![];
     for s in split_line {
         if !s.starts_with("Accept:") {
-            types = split_string_by(s, ',');
+            types = s.split(',')
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>();
         }
     }
     types
 }
 
-fn database_insert_success_msg(lang: &Language) -> String{
-    return if lang == &Language::Polish{
-        "<success><p>Pomyślnie dodano dane do bazy danych</p></success>".to_string()
-    }
-    else{
-        "<success><p>Successfully added data to database</p></success>".to_string()
-    };
-}
-
-fn database_insert_error_msg(lang: &Language) -> String{
-    return if lang == &Language::Polish{
-        "<error><p>Wystąpił błąd podczas dodawania danych do bazy danych, sprawdź czy zapytanie jest poprawne, 
-            a w ostateczności skontaktuj się z administratorem</p></error>".to_string()
-    }
-    else{
-        "<error><p>Error occured while adding data to database, check if request is correct and if it is, then ask admin</p></error>".to_string()
-    };
-}
 pub fn weekd_to_string(lang: &Language, weekd: u8) -> String{
     match weekd{
         1 => lang.english_or("Monday"   ,"Poniedziałek" ),
@@ -1092,6 +684,6 @@ pub fn weekd_to_string(lang: &Language, weekd: u8) -> String{
         5 => lang.english_or("Friday"   ,"Piątek"       ),
         6 => lang.english_or("Saturday" ,"Sobota"       ),
         7 => lang.english_or("Sunday"   ,"Niedziela"    ),
-        _ => lang.english_or("Unknown"  ,"Nieznany"),
+        _ => lang.english_or("Unknown"  ,"Nieznany"     ),
     }
 }

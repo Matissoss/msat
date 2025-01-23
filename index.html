@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<link href="website/main.css" rel="stylesheet">
+		<link href="docs/web/main.css" rel="stylesheet">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>msat</title>
 		<link href="promo/logo.svg" rel="icon">
@@ -12,45 +12,18 @@
 	</head>
 	<body>
 		<header>
-		<img src="promo/logo256x256.png">
-		<h1>msat</h1>
-		<h3>Mateus' school administration tool</h3>
-		<div class = "head-but">
-		<button onclick="window.open('https://github.com/Matissoss/msat')">Setup msat</button>
-		<button class="but-less" onclick="window.open('https://github.com/Matissoss/msat/tree/main/docs')">Read Documentation</button>
-		</div>
+			<nav id='NAV'>
+				<img src="promo/logo.svg">
+				<sep></sep>
+				<a href='#home' >About</a>
+				<sep></sep>
+				<a href='#docs' >Documentation</a>
+				<sep></sep>
+				<a href='#setup'>Setup</a>
+			</nav>
 		</header>
-		<main>
-			<div class = "col">
-				<div class="row">
-					<div class="feat">
-						<h1>🦀 Made in Rust</h1>
-						<p>msat and its components are made in Rust to ensure being 
-						lightweight, efficient, fast and memory-safe.</p>
-					</div>
-					<div class="feat">
-						<h1>🎵 Self-hostable</h1>
-						<p>msat was made to be self-hostable, meaning that you can host it on any
-						hardware compatible with msat</p>
-					</div>
-				</div>
-				<div class="row">
-					<div class="feat">
-						<h1>📖 Cross-platform</h1>
-						<p>TODO: msatc is avaliable on Android and iOS.</p>
-					</div>
-					<div class="feat">
-						<h1>🏷️ FOSS</h1>
-						<p>
-						msat and msatc are both FOSS (free and open-source) software,
-						distributed under X11 (MIT) License.
-						</p>
-					</div>
-				</div>
-			</div>
+		<main id='ROOT'>
 		</main>
-		<footer> 
-			<h4>msat/msatc is actively developed by MateusDev</h1>
-		</footer>
+		<script src="docs/web/main.js"></script>
 	</body>
 </html>

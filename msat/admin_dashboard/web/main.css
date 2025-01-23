@@ -1,144 +1,154 @@
+/*  
+ *  This CSS file was made by MateusDev 
+ *  and is distributed under X11 (MIT) License
+ */
+
 :root{
-	--primary: gray;
-	--secondary: white;
+	--dark: #393E46;
+	--text: #F2F2F2;
+	--accent2: #5C636E;
+	--accent1: #F96D00;
+}
+
+@font-face{
+	font-family: std;
+	src: url("Roboto-Regular.ttf")
+}
+
+/*Navigation Menu :)*/
+#NAVM{
+	display: flex;
+	flex-direction: row;
+	background-color: var(--accent1);
+	justify-content: center;
+	margin: auto;
+	width: 95vw;
+	height: 5vh;
+}
+#NAVM a{
+	color: var(--text);
+	font-weight: bold;
+	text-decoration: none;
+	transition: 0.125s all;
+}
+#NAVM divider::after{
+	content: " ";
+	margin: 0;
+	border-right: solid 0.125vw var(--text);
+	border-left: solid 0.125vw var(--text);
+}
+#NAVM a:hover{
+	color: var(--accent2);
+	text-decoration: underline;
+}
+#NAVM *{
+	margin: auto;
+}
+
+.container{
+	display: flex;
+	flex-direction: column;
+	width: 80vw;
+	background-color: var(--text);
+	color: var(--dark);
+	padding: 0.5vw;
+	margin: auto;
 }
 
 body{
-	background-color: black;
-	color: white
+	background-color: var(--dark);
+	color: var(--text);
+	font-family: std;
+	font-size: 120%;
+}
+h1{
+	color: var(--accent1);
+}
+h2{
+	color: var(--accent2)
 }
 
-nav{
-	display: flex;
-	flex-direction: row;
-	margin:auto;
-	background-color: var(--primary);
-	padding: 1vw;
+button, input, select{
+	border: 0.3vw solid var(--accent2);
+	padding: 0.25vw;
+	font-size: 100%;
+	width: 12vw;
+	height: 6vh;
+	text-align: center;
+	font-weight: bolder;
+	background-color: var(--accent2);
+	color: var(--text);
+	transition: 0.125s all;
 }
-
-h1, h2, h3 {
+button:hover, input:hover, select:hover{
+	cursor: pointer;
+	border-color: var(--text);
+}
+button:focus, input:focus, select:focus{
+	outline: none;
+	border-color: var(--accent1);
+}
+option{
+	font-family: std;
+	font-weight: bolder;
 	text-align: center;
 }
-
-h3 {
-	font-size: 150%
+input::placeholder{
+	color: var(--accent1);
+	text-align: center;
 }
-
-lessons{
-	display: flex;
-	flex-direction: row;
-	justify-content: center;
-	border: 0.125vw dashed white;
-	padding-top: 2vh;
-	padding-bottom: 2vh;
+input{
+	width: 12vw;
+	height: 4vh;
 }
-weekd{
-	display: flex;
-	flex-direction: column;
-	padding: 0.25vw;
-	width: 17.5vw;
-	margin: auto;
-	border: solid white 0.125vw;
-}
-
-weekd p{
-	font-weight: bolder;
-	font-style: italic;
-	font-size: 140%;
-	padding-bottom: 0.25vw;
-	border-bottom: 0.125vw white solid;
-}
-
-lesson{
-	display: flex;
-	flex-direction: column;
-	justify-content: center;
-	width: 90%;
-	margin: auto;
-	border: solid white 0.155vw;
-	border-radius: 0.5vw;
-}
-
-lesson *{
-	font-size: 120%;
-	margin: auto;
-}
-
-lesson strong{
-	border-bottom: solid white 0.125vw
-}
-
-italic{
-	font-style: italic;
-	text-decoration: underline;
-}
-
-lesson p{
-	font-style: normal;
-	font-weight: 500;
-	font-size: 100%;
-	border: none;
-}
-nav{
-	width: 96vw;
-}
-nav a{
-	margin: auto;
-	color: var(--secondary);
-	text-decoration: none;
-	font-size: 110%;
-}
-nav a:hover{
-	color: blue;
-	text-decoration: underline;
-	text-decoration-thickness: .5vw;
-}
-
-.login{
-	display: flex;
-	flex-direction: column;
-	border: 0.25vw dashed white;
-	padding: 1vw;
+error, success{
+	display: block;
 	width: 60vw;
-	height: 50vh;
+	background-color: var(--accent1);
+	padding: 0.2vw;
+	text-align: center;
 	margin: auto;
-	align-items:center;
-	justify-content: center;
-	justify-self: center;
 }
-.login input, .login button{
-	width: 60%;
-	padding: 0.3vw;
-	font-size: 100%;
-	border-color: white;
-	color: white;
-	background-color: black;
+success{
+	background-color: var(--accent2);
 }
-.login button{
-	width: 61.2%;
+table{
+	border: 0.5vw solid var(--text);
+	margin: auto;
+	width: 90vw;
+	height: auto;
 }
-.login input::placeholder{
-	color: white;
+td{
+	margin: 0;
+	padding: 0.25vw;
+	border-bottom: 0.125vw solid var(--text);
+	text-align: center;
 }
-.login h1{
-	margin-top:0;
+a{
+	color: var(--accent1);
 }
-
-.current_lesson{
-	background-color: white;
-	color: black;
+tr:hover{
+	cursor: pointer;
+	background-color: var(--accent2);
 }
-
-@media only screen and (max-width: 700px){
-	lessons{
-		flex-direction: column;
-	}
-	weekd{
-		width: 80%;
-		margin: auto;
-		padding-bottom: 5vh;
-	}
-	weekd p{
-		text-align: center;
-	}
+.etd *{
+	border-bottom: 0;
+}
+.login{
+	border: 0.2vw solid var(--text);
+	width: 50vw;
+	height: 50vh;
+	height: auto;
+	display: flex;
+	text-align: center;
+	flex-direction: column;
+	align-self: center;
+	margin: auto;
+	padding: 2vw;
+}
+.login *{
+	width: 85%;
+	margin: auto;
+	margin-top: 0.55vh;
+	margin-bottom: 0.55vh;
 }

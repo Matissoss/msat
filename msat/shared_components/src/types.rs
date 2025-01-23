@@ -1,19 +1,15 @@
 /// ===========================================
 ///                 Types.rs
-///     Contains types used in msat 
+///     Contains types used in msat
 /// ===========================================
-use serde::{Serialize, Deserialize};
+use serde::{
+    Serialize, 
+    Deserialize
+};
 use std::net::IpAddr;
-use std::collections::HashMap;
-use crate::utils::format_lessonh;
-
-#[derive(Clone,Debug,Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Request{
-    GET,
-    POST,
-    #[default]
-    Other
-}
+use crate::consts::*;
+use crate::backend::RequestType as Request;
+#[allow(warnings)]
 impl ToString for Request{
     fn to_string(&self) -> String {
         match &self{
@@ -29,238 +25,113 @@ impl ToString for Request{
 }
 
 #[derive(PartialEq,Eq,Serialize,Deserialize,Clone,Debug, Default)]
-pub struct Configuration{
+pub struct Config{
     pub password           : String,
     pub language           : Language,
     pub http_server        : HttpServerConfig,
     pub application_server : AppServerConfig
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HttpServerConfig{
-    pub http_port: u16,
+    pub port: u16,
+    pub ip  : IpAddr,
     pub max_connections: u16,
     pub max_timeout_seconds : u16,
-    pub tcp_ip  : Option<IpAddr>
 }
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AppServerConfig{
     pub port : u16,
+    pub ip : IpAddr,
     pub max_connections: u16,
     pub max_timeout_seconds : u16,
-    pub tcp_ip : Option<IpAddr>
+}
+
+impl std::default::Default for HttpServerConfig{
+    fn default() -> Self{
+        Self{
+            port: 8000,
+            ip: *LOCAL_IP,
+            max_timeout_seconds: 10,
+            max_connections: 100
+        }
+    }
+}
+impl std::default::Default for AppServerConfig{
+    fn default() -> Self{
+        Self{
+            port: 8888,
+            max_connections: 100,
+            max_timeout_seconds: 10,
+            ip: *LOCAL_IP
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ServerError{
+    ParseIntError{arg: String},
+    ParseArgError{args: Vec<String>},
+    ArgsMissing  {expected: Vec<String>},
+    ReadRequestError,
+    UnknownRequest,
+    WriteRequestError,
+    HTTP{err: HTTPError},
+    InvalidRequest(String),
+    RequestPasswordError{entered_password: String},
+    VersionNotSupported(u16),
+    DatabaseError(rusqlite::Error)
+}
+
+#[derive(Debug, PartialEq)]
+pub enum HTTPError{
+    NotFound,
+    NotImplemented,
+    InternalServerError,
+    URITooLong(String)
 }
 
 #[allow(unused)]
-#[derive(Clone,Copy,Debug,PartialEq, Eq, PartialOrd, Ord)]
-pub enum ConnectionError{
-    CannotRead,
-    WrongVersion,
-    RequestParseError,
-    NoVersion,
-    WrongPassword,
-    NoPassword,
-    WritingError,
-    ResponseError,
-    WrongHeader,
-    Other
-}
-
-#[allow(unused)]
-pub enum RequestError{
-    LengthError,
-    DatabaseError,
-    UnknownRequestError,
-    NoDataFoundError,
-    ParseIntError(String)
-}
-
 pub trait SendToClient{
-    fn to_response(input: Self) -> String;
+    fn to_response(&self) -> String;
 }
 
-impl std::fmt::Display for RequestError{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[allow(warnings)]
+impl SendToClient for ServerError{
+    fn to_response(&self) -> String {
         match &self{
-            Self::LengthError => {
-                writeln!(f, "400: Client provided wrong amount of arguments")
-            }
-            Self::DatabaseError => {
-                writeln!(f, "500: Server couldn't make operation on database")
-            }
-            Self::NoDataFoundError => {
-                writeln!(f, "500: Server couldn't find any data requested by user")
-            }
-            Self::ParseIntError(s) => {
-                writeln!(f, "400: Client provided argument that couldn't be parsed as integer ({})", s)
-            }
-            Self::UnknownRequestError => {
-                writeln!(f, "400: Server doesn't know how to proceed with this request")
-            }
+            Self::UnknownRequest => format!("msat/501-Not-Implemented&error_msg='UnknownRequest'"),
+            Self::ReadRequestError => format!("msat/500-Internal-Server-Error&error_msg='ReadError'"),
+            Self::WriteRequestError => format!("msat/500-InternalServerError&error_msg='WriteError'"),
+            Self::ParseIntError {arg} => format!("msat/400-Bad-Request&error_msg='ParseIntError={}'",arg),
+            Self::ParseArgError {args} => format!("msat/400-Bad-Request&error_msg='Args={}'", args.join("+")),
+            Self::ArgsMissing {expected} => format!("msat/400-Bad-Request&error_msg='ArgsExpected={}'", expected.join("+")),
+            Self::InvalidRequest(request) => format!("msat/400-Bad-Request&error_msg='InvalidRequest='{}''", request),
+            Self::HTTP {err} => format!("msat/0-http_error&error={}", err.to_response()),
+            Self::RequestPasswordError {entered_password} => format!("msat/400-Bad-Request&error_msg='WrongPassword={}'", entered_password.to_string().to_single('+')),
+            Self::VersionNotSupported  (version_entered) => format!("msat/400-Bad-Request&error_msg='NotSupportedVersion={}&supported={}'", version_entered, 
+                SUPPORTED_VERSIONS.map(|n| n.to_string()).join("+")),
+            Self::DatabaseError(_) => "msat/500-Internal-Server-Error&error_msg='DatabaseError'".to_string()
         }
     }
 }
 
-impl std::fmt::Display for ConnectionError{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[allow(warnings)]
+impl SendToClient for HTTPError{
+    fn to_response(&self) -> String{
         match &self{
-            Self::Other => {
-                writeln!(f, "Other")
-            }
-            Self::NoVersion => {
-                writeln!(f, "400: Version wasn't provided in request.")
-            }
-            Self::NoPassword => {
-                writeln!(f, "403: Password wasn't provided in request.")
-            }
-            Self::WrongVersion => {
-                writeln!(f, "505: Client uses different version than server.")
-            }
-            Self::CannotRead => {
-                writeln!(f, "500: Server was unable to read message from client.")
-            }
-            Self::RequestParseError => {
-                writeln!(f, "400: Server was unable to parse request.")
-            }
-            Self::WritingError => {
-                writeln!(f, "500: Server was unable to send message to client.")
-            }
-            Self::WrongPassword => {
-                writeln!(f, "400: Client provided wrong password.")
-            }
-            Self::WrongHeader => {
-                writeln!(f, "400: Client provided wrong header")
-            }
-            Self::ResponseError => {
-                writeln!(f, "400: Server was unable to respond to request.")
-            }
+            Self::NotFound => format!("404-Not-Found"),
+            Self::NotImplemented => format!("501-Not-Implemented"),
+            Self::InternalServerError => format!("500-Internal-Server-Error"),
+            Self::URITooLong (_) => format!("414-URI-Too-Long")
         }
     }
-}
-
-impl SendToClient for RequestError{
-    fn to_response(input: Self) -> String {
-        match input{
-            Self::DatabaseError => {
-                "msat/500-Internal-Server-Error&msg=Server+couldn't+communicate+with+database".to_string()
-            }
-            Self::UnknownRequestError => {
-                "msat/400-Bad-Request&msg=Server+doesn't+implement+this+request".to_string()
-            }
-            Self::LengthError => {
-                "msat/400-Bad-Request&msg=Client+provided+wrong+amount+of+arguments".to_string()
-            }
-            Self::NoDataFoundError => {
-                "msat/500-Internal-Server-Error&msg=Server+couldn't+provide+any+data".to_string()
-            }
-            Self::ParseIntError(s) => {
-                format!("msat/400-Bad-Request&msg=Client+provided+string:+\"{}\"+which+couldn't+be+parsed+to+16-bit+integer", s)
-            }
-        }
-    }
-}
-impl SendToClient for ConnectionError{
-    fn to_response(input: Self) -> String {
-        match input{
-            Self::ResponseError => {
-                "msat/400-Bad-Request&msg=Server+couldn't+provide+response+to+client".to_string()
-            }
-            Self::Other => {
-                "msat/0-Unknown&msg=Other".to_string()
-            }
-            Self::NoVersion => {
-                "msat/400-Bad-Request&msg=Client+didn't+provide+version+in+request".to_string()
-            }
-            Self::CannotRead => {
-                "msat/500-Internal-Server-Request&msg=Server+couldn't+read+request+sent+by+client".to_string()
-            }
-            Self::NoPassword => {
-                "msat/400-Bad-Request&msg=Client+didn't+provide+password+in+request".to_string()
-            }
-            Self::WrongVersion => {
-                "msat/505-Version-not-supported&msg=Client+provided+version+that+is+different+from+server".to_string()
-            }
-            Self::WritingError => {
-                "msat/500-Internal-Server-Request&msg=Server+couldn't+send+response+to+client".to_string()
-            }
-            Self::WrongPassword => {
-                "msat/400-Bad-Request&msg=Client+provided+wrong+password+in+POST+request".to_string()
-            }
-            Self::RequestParseError => {
-                "msat/400-Bad-Request&msg=Server+couldn't+parse+request+sent+by+client".to_string()
-            }
-            Self::WrongHeader => {
-                "msat/400-Bad-Request&msg=Client+provided+wrong+header".to_string()
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct ParsedRequest{
-    pub request: Request,
-    pub content: HashMap<String, String>,
-    pub request_number: u8
-}
-
-impl From<(Request, HashMap<String, String>, u8)> for ParsedRequest{
-    fn from(value: (Request, HashMap<String, String>, u8)) -> Self {
-        let (req, con, req_num) = value;
-        return ParsedRequest{
-            request: req,
-            content: con,
-            request_number: req_num
-        };
-    }
-}
-
-pub struct Lesson{
-    pub week_day     : u8,
-    pub class_id     : u16,
-    pub lesson_hour  : u8,
-    pub teacher_id   : u16,
-    pub subject_id   : u16,
-    pub classroom_id : u16
-}
-pub struct Class{
-    pub class_id   : u16,
-    pub class_name : String
-}
-pub struct LessonHour{
-    pub lesson_num : u8,
-    pub start_time : u16,
-    pub end_time   : u16,
-}
-pub struct Teacher{
-    pub teacher_id : u16,
-    pub first_name : String,
-    pub last_name  : String
-}
-pub struct Classroom{
-    pub classroom_id   : u16,
-    pub classroom_name : String
-}
-pub struct Subject{
-    pub subject_id   : u16,
-    pub subject_name : String
-}
-pub struct Duty{
-    pub break_num   : u8,
-    pub teacher_id  : u16,
-    pub break_place : String,
-    pub week_day    : u8
-}
-pub struct BreakHours{
-    pub break_num  : u8,
-    pub start_time : u16,
-    pub end_time   : u16
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Language{
-    #[default]
-    Unspecified,
     Polish,
+    #[default]
     English
 }
 
@@ -268,33 +139,79 @@ impl Language{
     pub fn english_or(&self, english: &str, polish: &str) -> String{
         match self{
             Self::Polish => {
-                return polish.to_string()
+                polish.to_string()
             }
             Self::English => {
-                return english.to_string()
-            }
-            Self::Unspecified => {
-                polish.to_string()
+                english.to_string()
             }
         }
     }
 }
 
-pub enum Orb<T, Y>{
-    Data(T),
-    Alt(Y)
+#[derive(Deserialize, Serialize, Default, Clone, Copy)]
+pub struct JoinedHour{
+    pub lesson_hour  : Option<u16>,
+    pub start_hour   : Option<u8>,
+    pub start_minute : Option<u8>,
+    pub end_hour     : Option<u8>,
+    pub end_minutes  : Option<u8>
+}
+#[derive(Deserialize, Serialize, Default)]
+pub struct JoinedLesson{
+    pub weekday       : Option<u8>,
+    pub teacher       : Option<String>,
+    pub class         : Option<String>,
+    pub classroom     : Option<String>,
+    pub subject       : Option<String>,
+    pub lessonh       : JoinedHour,
+    pub semester      : Option<String>,
+    pub academic_year : Option<String>
+}
+#[derive(Deserialize, Serialize, Default)]
+pub struct JoinedLessonRaw{
+    pub weekday       : Option<u8>,
+    pub teacher       : Option<u16>,
+    pub class         : Option<u16>,
+    pub classroom     : Option<u16>,
+    pub subject       : Option<u16>,
+    pub lessonh       : Option<u16>,
+    pub semester      : Option<u8>,
+    pub academic_year : Option<u8>
+}
+#[derive(Deserialize, Serialize, Default)]
+pub struct JoinedDuty{
+    pub weekday       : Option<u8>,
+    pub semester      : Option<u8>,
+    pub academic_year : Option<u8>,
+    pub teacher       : Option<String>,
+    pub place         : Option<String>,
+    pub break_num     : JoinedHour,
+}
+#[derive(Deserialize, Serialize, Default)]
+pub struct JoinedDutyRaw{
+    pub weekday       : Option<u8> ,
+    pub semester      : Option<u8> ,
+    pub academic_year : Option<u8> ,
+    pub teacher_id    : Option<u16>,
+    pub place_id      : Option<u16>,
+    pub break_num     : JoinedHour
 }
 
-#[allow(warnings)]
-pub trait msatToString{
-    fn msat_to_string(&self) -> String;
+pub trait MultiwordToSingleword{
+    fn to_single(&self, separator: char) -> String;
 }
-
-type Hours = (u16, u16);
-impl msatToString for Hours{
-    fn msat_to_string(&self) -> String {
-        let (start_time, end_time) = self;
-        let (stime_str , endt_str) = (format_lessonh(*start_time), format_lessonh(*end_time));
-        return format!("{} - {}", stime_str, endt_str);
+impl MultiwordToSingleword for String{
+    fn to_single(&self, separator: char) -> String {
+        let words = &self.split_whitespace().collect::<Vec<&str>>();
+        let mut to_return = "".to_string();
+        for word in words{
+            if to_return.as_str() == ""{
+                to_return.push_str(word);
+            }
+            else{
+                to_return.push_str(&format!("{}{}", separator, word));
+            }
+        }
+        to_return
     }
 }

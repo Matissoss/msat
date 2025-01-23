@@ -1,0 +1,209 @@
+:root{
+	--primary: #1C1C1C;
+	--secondary: #dddddd;
+	--yellow: #fbf236;
+	--red: #ac3232;
+	--blue: #3f3f74;
+	--green: #6abe30;
+}
+nav {
+	position: sticky;
+	margin: auto;
+	width: 95vw;
+	height: 7vh;
+	display: flex;
+	background-color: var(--red);
+	color: var(--secondary);
+	flex-direction: row;
+}
+main{
+	width: 99vw;
+}
+body{
+	background-color: var(--primary);
+	color: var(--secondary);
+	text-align: center;
+	overflow-x: hidden;
+	scroll-behavior: smooth;
+}
+h1,h2,h3,p{
+	margin-bottom: 0;
+	margin-top: 0;
+}
+h1{
+	font-weight: bolder;
+	font-size: 350%;
+}
+h2{
+	font-weight: bold;
+	font-size: 200%;
+}
+h3{
+	font-weight: 800;
+	font-size: 175%;
+}
+p, strong, i{
+	font-size: 115%;
+	font-weight: 600;
+}
+p{
+	font-size: 125%;
+}
+strong{
+	font-weight: bolder;
+}
+nav img{
+	display: block;
+	margin: auto;
+	height: 7vh;
+	width: 7vh;
+}
+table{
+	width: 50vw;
+	margin: auto;
+	border: 0.125vw solid var(--secondary);
+	padding: 0.5vw;
+}
+code{
+	text-align: left;
+	font-size: 125%;
+	word-break: normal;
+	white-space: pre-line;
+	color: var(--red);
+}
+td{
+	border: 0.125vw solid var(--secondary);
+	padding: 0.5vw
+}
+a{
+	color: var(--secondary);
+	transition: 0.125s all
+}
+a:hover{
+	color: var(--yellow);
+}
+nav a{
+	margin: auto;
+	font-weight: bolder;
+	font-size: 150%;
+	color: var(--secondary);
+	transition: 0.25s all;
+}
+sep{
+	width: .15%;
+	height: 100%;
+	background-color: var(--secondary)
+}
+hr{
+	width: 80vw;
+	margin: auto;
+}
+nav a:hover{
+	color: var(--primary);
+}
+.container{
+	width: auto;
+	height: auto;
+	padding: 1.5vw;
+	border: solid var(--secondary) 0.25vw;
+	margin: auto;
+	margin-bottom: 5vh;
+	margin-top: 5vh
+}
+
+.container-header-with-logo{
+	display: flex;
+	flex-direction: row;
+}
+.container-header-with-logo img{
+	display: block;
+	margin: auto;
+	height: 75%;
+	width: 75%;
+}
+.row, .column{
+	width: auto;
+	height: auto;
+}
+
+.row{
+	display: flex;
+	flex-direction: row;
+}
+.column{
+	display: flex;
+	flex-direction: column;
+}
+
+.button-more, .button-less, .button-gith{
+	border: solid 0.125vw var(--secondary);
+	border-radius: .5vw;
+	padding: 0.25vw;
+	width: 20vw;
+	font-size: 125%;
+	height: 7vh;
+	font-weight: bolder;
+	transition: 0.25s all;
+	margin-bottom: 1.2vh;
+	margin-top: 1.2vh
+}
+
+.button-less{
+	background-color: var(--primary);
+	color: var(--secondary);
+}
+.button-less:hover{
+	color: var(--primary);
+	cursor: pointer;
+	background-color: var(--secondary);
+}
+.button-more{
+	background-color: var(--secondary);
+	color: var(--primary);
+}
+.button-more:hover{
+	cursor: pointer;
+	border-color: #c5c5c5;
+	background-color: #c5c5c5;
+}
+
+.button-gith{
+	background-color: var(--yellow);
+	color: var(--primary);
+	border-color: var(--yellow)
+}
+.button-gith:hover{
+	cursor: pointer;
+	background-color: #d9d014;
+	border-color: #d9d014;
+}
+
+@media screen and (max-width: 900px){
+	nav{
+		position: static;
+		flex-direction: column;
+		height: 50vh;
+	}
+	nav img{
+		height: 30vh;
+		width: 30vh;
+	}
+	nav sep{
+		border: 0;
+		width: 75%;
+		height: .15%;
+		margin: auto;
+		border-top: 0.5vw solid var(--secondary);
+		border-bottom: 0.5vw solid var(--secondary);
+	}
+	.button-more, .button-less, .button-gith {
+		width: 80vw;
+		display: block;
+		border-width: .75vh;
+		border-radius: .75vh;
+		margin: auto;
+		margin-top: 5vh;
+		margin-bottom: 5vh;
+		height: 10vh;
+	}
+}

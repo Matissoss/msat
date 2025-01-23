@@ -1,31 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="none" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg">
+<svg width="300" height="300" viewBox="0 0 300 300" fill="none" stroke="none" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <path id="path_1" d="M8 0L8 0L8 8L0 8L0 0L8 0Z" />
-    <rect id="rect_2" x="0" y="0" width="8" height="8" />
+    <path id="path_1" d="M300 0L300 0L300 300L0 300L0 0L300 0Z" />
+    <rect id="rect_2" x="0" y="0" width="300" height="300" />
     <clipPath id="clip_path_3">
       <use xlink:href="#rect_2" />
     </clipPath>
   </defs>
-  <g id="logo" opacity="1" clip-path="url(#clip_path_3)">
+  <g id="Sailboat" opacity="1" clip-path="url(#clip_path_3)">
     <g>
       <use xlink:href="#path_1" style="mix-blend-mode:normal;" />
       <g>
-        <rect id="Rectangle" width="1" height="4" style="fill:#3F3F74;fill-rule:evenodd;mix-blend-mode:normal;" />
-        <rect id="Rectangle" width="5" height="1" style="fill:#3F3F74;fill-rule:evenodd;mix-blend-mode:normal;" />
-        <rect id="Rectangle" width="1" height="4" style="fill:#3F3F74;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(2 0)" />
-        <rect id="Rectangle" width="1" height="4" style="fill:#3F3F74;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(4 0)" />
-        <rect id="Rectangle" width="1" height="4" style="fill:#AC3232;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(5 0)" />
-        <rect id="Rectangle" width="3" height="1" style="fill:#AC3232;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(5 0)" />
-        <rect id="Rectangle" width="1" height="4" style="fill:#AC3232;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(7 0)" />
-        <rect id="Rectangle" width="3" height="1" style="fill:#AC3232;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(5 2)" />
-        <rect id="Rectangle" width="1" height="4" style="fill:#6ABE30;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(0 4)" />
-        <rect id="Rectangle" width="1" height="4" style="fill:#6ABE30;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(4 4)" />
-        <rect id="Rectangle" width="1" height="4" style="fill:#6ABE30;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(2 4)" />
-        <rect id="Rectangle" width="3" height="1" style="fill:#6ABE30;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(0 7)" />
-        <rect id="Rectangle" width="3" height="1" style="fill:#6ABE30;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(2 4)" />
-        <rect id="Rectangle" width="3" height="1" style="fill:#FBF236;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(5 4)" />
-        <rect id="Rectangle" width="1" height="4" style="fill:#FBF236;fill-rule:evenodd;mix-blend-mode:normal;" transform="translate(6 4)" />
+        <path id="Sail-left" d="M71.5219 192.28C71.5219 192.28 -7.49534 187.46 0.579216 186.073C8.65377 184.686 169.429 -24.2419 210.48 2.33634L102.517 194.991L94.1938 194.471L71.5219 192.28Z" style="fill:#FFFFFF;fill-rule:evenodd;stroke-width:1;stroke:#FFFFFF;mix-blend-mode:normal;" transform="matrix(1 0 0 1 25 5)" />
+        <path id="Sail-right" d="M30.7307 172.761C30.7307 172.761 79.5346 176.061 72.0354 172.761C64.5363 169.462 100.828 -14.8907 54.5663 0.967167L0 167.894L8.2019 169.402L30.7307 172.761Z" style="fill:#F3F3F3;fill-rule:evenodd;stroke-width:1;stroke:#F3F3F3;mix-blend-mode:normal;" transform="matrix(1 0 0 1 198 37)" />
+        <path id="Base" d="M0 0L236.931 29.0914L172.015 75.7091C161.291 83.4105 143.369 84.2319 131.985 77.5437L0 0Z" style="fill:#53361B;fill-rule:evenodd;stroke-width:1;stroke:#53361B;mix-blend-mode:normal;" transform="matrix(1 0 0 1 34 206)" />
+        <path id="Stick" d="M96.1642 0.324507L102.444 3.58852C103.866 4.32724 104.483 6.10959 103.824 7.56951L19.1072 195.192C18.448 196.652 16.708 197.353 15.2207 196.758L1.69913 191.348C0.211884 190.754 -0.418182 189.107 0.291824 187.671L92.3051 1.58685C93.0151 0.150953 94.7429 -0.414213 96.1642 0.324507Z" style="fill:#53361B;fill-rule:evenodd;stroke-width:1;stroke:#53361B;mix-blend-mode:normal;" transform="matrix(1 0 0 1 145 16)" />
       </g>
     </g>
   </g>
