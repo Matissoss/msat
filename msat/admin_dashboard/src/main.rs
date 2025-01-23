@@ -102,14 +102,12 @@ pub async fn init_httpserver() {
 }
 pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite::Connection>>, lang: Arc<Language>) {
     visual::debug("start of processing");
-    let mut buffer : [u8; 2048] = [0u8; 2048];
+    let mut buffer : [u8; 8192] = [0u8; 8192];
     if let Ok(len) = stream.read(&mut buffer).await {
         if len == 0 {
         }
         else{
-        visual::debug("start");
         let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
-        visual::debug(&request);
         if *DEBUG_MODE{
             for l in request.lines(){
                 if !l.is_empty()
@@ -271,7 +269,8 @@ async fn handle_custom_request
                     {
                         if let Ok(class) = class_id.parse::<u16>()
                         {
-                            if let Ok(lessons) = get_lessons_by_class_id(class, &*db.lock().await){
+                            match get_lessons_by_class_id(class, &*db.lock().await){
+                                Ok(lessons) => {
                                 type LessonData = (String, String, String, String, String);
                                 let mut unwrapped_lessons : BTreeMap<(u8, u16), LessonData> = 
                                     BTreeMap::new();
@@ -285,33 +284,38 @@ async fn handle_custom_request
                                         unwrapped_lessons.insert(
                                         (weekd, lessonh), 
                                         (subject, classroom, teacher, 
-                                         format!("{:2}:{:2}", start_hour, start_minute), 
-                                         format!("{:2}:{:2}", end_hour, end_minute))
+                                         format!("{:02}:{:02}", start_hour, start_minute), 
+                                         format!("{:02}:{:02}", end_hour, end_minute))
                                         );
                                     }
                                 }
                                 let mut current_weekd : u8 = 0;
-                                let mut to_return     : String = "<ltable>".to_string();
+                                let mut to_return     : String = "<table>".to_string();
                                 
                                 for (weekd, lessonh) in unwrapped_lessons.keys(){
                                     if &current_weekd != weekd{
                                         if current_weekd != 0{
-                                            to_return.push_str("<wd>");
+                                            to_return.push_str("<tr>");
                                         }
                                         else{
-                                            to_return.push_str("</wd><wd>");
+                                            to_return.push_str("</tr><tr>");
                                         }
                                         current_weekd = *weekd;
                                     }
                                     if let Some((subject, classroom, teacher, start, end)) = 
                                         unwrapped_lessons.get(&(*weekd, *lessonh))
                                     {
-                                        to_return.push_str(&format!("<les><p>{}</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p></les>", 
+                                        to_return.push_str(&format!("<td><p>{}</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p></td>", 
                                                 subject, classroom, teacher, start, end));
                                     }
                                 }
-                                to_return.push_str("</ltable>");
+                                to_return.push_str("</table>");
+                                println!("{}", to_return);
                                 return to_return
+                                }
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                }
                             }
                         }
                     }
@@ -322,24 +326,25 @@ async fn handle_custom_request
                         if let Ok(teacher_id) = teacher_str.parse::<u16>()
                         {
                             if let Ok(duties) = get_duties_for_teacher(teacher_id, &*db.lock().await){
-                                let mut filtered : BTreeMap<u16, (String, String, String)> = BTreeMap::new();
+                                let mut filtered : BTreeMap<(u16, u8), (String, String, String)> = BTreeMap::new();
                                 for d in duties{
-                                    if let (Some(place), Some(breakn), Some(starth), Some(startm), Some(endh), Some(endm)) = 
-                                    (d.place, d.break_num.lesson_hour, d.break_num.start_hour, d.break_num.start_minute, 
+                                    if let (Some(place), Some(weekday), Some(breakn), Some(starth), Some(startm), Some(endh), Some(endm)) = 
+                                    (d.place, d.weekday, d.break_num.lesson_hour, d.break_num.start_hour, d.break_num.start_minute, 
                                      d.break_num.end_hour, d.break_num.end_minutes)
                                     {
-                                        filtered.insert(breakn, (place, format!("{:2}:{:2}", starth, startm), format!("{:2}:{:2}", endh, endm)));
+                                        filtered.insert((breakn, weekday), (place, format!("{:02}:{:02}", starth, startm), format!("{:02}:{:02}", endh, endm)));
                                     }
                                 }
                                 if filtered.is_empty(){
                                     return lang.english_or("<p>You don't have duties today!</p>", "<p>Nie masz dzisiaj dyżuru!</p>");
                                 }
-                                let mut to_return = "<duties>".to_string();
-                                for breakn in filtered.keys(){
-                                    if let Some((place, start, end)) = filtered.get(breakn){
-                                        to_return.push_str(&format!("<entry><p>{}</p><p>{} - {}</p></entry>", place, start, end));
+                                let mut to_return = format!("<table class='duties'>");
+                                for (breakn, weekd) in filtered.keys(){
+                                    if let Some((place, start, end)) = filtered.get(&(*breakn, *weekd)){
+                                        to_return.push_str(&format!("<tr><td><p>W {} w {} o {} - {}</p></td></tr>", weekd_to_string(&*lang, *weekd), place, start, end));
                                     }
                                 }
+                                to_return.push_str("</table>");
                                 return to_return;
                             }
                         }
@@ -505,12 +510,16 @@ async fn handle_custom_request
                             backend::POST::Break(Some((break_num, start_hour, start_minute, end_hour, end_minute))))
                                 , &*db.lock().await)
                             {
-                                Ok(v) => return v,
+                                Ok(_) => return "msat/201-Created".to_string(),
                                 Err(error) => {
                                     visual::error(Some(error), "Database Error");
                                 }
                             }
                         }
+                    }
+                    else{
+                        visual::debug(&format!("{:?}", args));
+                        visual::error::<u8>(None, "Args missing");
                     }
                 }
                 // Semester

@@ -10,83 +10,14 @@ use rusqlite::{
     OpenFlags  as Flags,
     Error      as SQLiteError
 };
-use chrono::{Timelike,Datelike};
-use tokio::{
-    fs, sync::{
-        MutexGuard,
-        Mutex,
-        Semaphore
-    }
-};
+use chrono::Datelike;
+use tokio::fs;
 use toml;
-use std::{
-    collections::HashMap, sync::{
-        Arc, LazyLock
-    }
-};
+use std::collections::HashMap;
 // Local Imports 
 use crate::{consts::VERSION, visual};
 use crate::types::*;
 // static/const declaration
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct Timestamp{
-    year: u16,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minute: u8,
-    secs: u8
-}
-impl Timestamp{
-    fn can_proceed(&self, timeout_secs: u32) -> bool{
-        let now : u32 = (self.hour as u32 * 60 * 60) + (self.minute as u32 * 60) + self.secs as u32;
-        Timestamp::from(now + timeout_secs) < Timestamp::now()
-    }
-    fn now() -> Timestamp{
-        let now = &chrono::Local::now();
-        Timestamp{
-            year  : (now.year  () & 0xFFFF).try_into().unwrap(),
-            month : (now.month () & 0xFF).try_into().unwrap(),
-            day   : (now.day   () & 0xFF).try_into().unwrap(),
-            hour  : (now.hour  () & 0xFF).try_into().unwrap(),
-            minute: (now.minute() & 0xFF).try_into().unwrap(),
-            secs  : (now.second() & 0xFF).try_into().unwrap()
-        }
-    }
-}
-impl From<u32> for Timestamp{
-    fn from(value: u32) -> Self {
-        let hour = (value / 3600) as u8;
-        let minute = ((value % 3600) / 60) as u8;
-        let second = (value % 60) as u8;
-        Self{
-            year: (chrono::Local::now().year() & 0xFFFF).try_into().unwrap(),
-            month: (chrono::Local::now().month() & 0xFF).try_into().unwrap(),
-            day: (chrono::Local::now().day() & 0xFF).try_into().unwrap(),
-            hour,
-            minute,
-            secs: second
-        }
-    }
-}
-
-// statics
-pub static GLOBAL_STATIC_SEMAPHORE : LazyLock<Arc<Semaphore>> = LazyLock::new(|| {
-    Arc::new(Semaphore::new(0))
-});
-pub static CLASSES : LazyLock<Mutex<u16>> = LazyLock::new(|| {
-    Mutex::new(0)
-});
-pub static LESSONHOURS : LazyLock<Mutex<u16>> = LazyLock::new(|| {
-    Mutex::new(0)
-});
-pub static WEEKDAY : LazyLock<Mutex<u8>> = LazyLock::new(|| {
-    Mutex::new(0)
-});
-pub static TIMEOUT : u32 = 30;
-
-// Struct Initialization
-
 #[allow(unused)]
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum RequestType{
@@ -210,6 +141,9 @@ pub fn init_db() -> Result<Database, SQLiteError>{
         Flags::SQLITE_OPEN_READ_WRITE|
         Flags::SQLITE_OPEN_CREATE
     )?;
+    db.execute_batch("PRAGMA journal_mode = WAL;")?;
+    db.execute_batch("PRAGMA foreign_key = 1;")?;
+    db.busy_timeout(std::time::Duration::from_secs(4))?;
     db.execute(
         "CREATE TABLE IF NOT EXISTS Classes(
             class_id   INTEGER PRIMARY KEY,
@@ -220,7 +154,7 @@ pub fn init_db() -> Result<Database, SQLiteError>{
     db.execute(
         "CREATE TABLE IF NOT EXISTS Classrooms(
             classroom_id INTEGER PRIMARY KEY,
-            class_name   TEXT NOT NULL UNIQUE
+            classroom_name   TEXT NOT NULL UNIQUE
         );"
         ,[])?;
     db.execute(
@@ -278,7 +212,7 @@ pub fn init_db() -> Result<Database, SQLiteError>{
             FOREIGN KEY (teacher_id)    REFERENCES Teachers   (teacher_id),
             FOREIGN KEY (subject_id)    REFERENCES Subjects   (subject_id),
             FOREIGN KEY (lesson_hour)   REFERENCES LessonHours(lesson_hour),
-            FOREIGN KEY (semester)      REFERENCES Semesters  (semester_num),
+            FOREIGN KEY (semester)      REFERENCES Semesters  (semester),
             FOREIGN KEY (academic_year) REFERENCES Years      (academic_year)
         );
         "
@@ -318,10 +252,6 @@ pub fn init_db() -> Result<Database, SQLiteError>{
         );
         "
         ,[])?;
-    db.execute_batch("PRAGMA journal_mode = WAL")?;
-    db.execute_batch("PRAGMA foreign_key = ON")?;
-    db.busy_timeout(std::time::Duration::from_secs(4))?;
-
     Ok(db)
 }
 
@@ -346,298 +276,37 @@ pub fn get_year_and_semester(db: &rusqlite::Connection) -> Result<(u8, u8), rusq
     })?;
     Ok((year, semester))
 }
-
-/// STATIC
-pub async fn static_lesson_table(db: &MutexGuard<'_, rusqlite::Connection>) -> Result<Vec<JoinedLessonRaw>, ()>{
-    if Timestamp::now().can_proceed(TIMEOUT){
-        if let Ok(Ok(permit)) = tokio::time::timeout
-        (std::time::Duration::from_secs(5), Arc::clone(&GLOBAL_STATIC_SEMAPHORE).acquire_owned()).await
-        {
-                // GET all data from Lessons table and take 'snapshot'
-                let query = 
-                "
-                SELECT * FROM Lessons
-                ";
-                match db.prepare(query){
-                    Ok(mut stmt) => {
-                        let iter = stmt.query_map([], |row| {
-                            Ok(
-                                JoinedLessonRaw{
-                                    weekday       : row.get(0).ok(),
-                                    class         : row.get(1).ok(),
-                                    classroom     : row.get(2).ok(),
-                                    teacher       : row.get(3).ok(),
-                                    subject       : row.get(4).ok(),
-                                    lessonh       : row.get(5).ok(),
-                                    semester      : row.get(6).ok(),
-                                    academic_year : row.get(7).ok()
-                                }
-                            )
-                        });
-                        if let Ok(ok_iter) = iter{
-                            let mut to_return = vec![];
-                            let mut largest_class = 0;
-                            let mut largest_lessonh = 0;
-                            let mut largest_weekd = 0;
-                            for raw_lesson in ok_iter.flatten(){
-                                if largest_class < raw_lesson.class.unwrap_or_default(){
-                                    largest_class = raw_lesson.class.unwrap_or_default();
-                                }
-                                if largest_lessonh < raw_lesson.lessonh.unwrap_or_default(){
-                                    largest_lessonh = raw_lesson.lessonh.unwrap_or_default();
-                                }
-                                if largest_weekd < raw_lesson.weekday.unwrap_or_default(){
-                                    largest_weekd = raw_lesson.weekday.unwrap_or_default();
-                                }
-                                to_return.push(raw_lesson);
-                            }
-                            *LESSONHOURS.lock().await = largest_lessonh;
-                            *WEEKDAY.lock().await = largest_weekd;
-                            *CLASSES.lock().await = largest_class;
-                            match tokio::fs::try_exists("data/static").await{
-                                Ok(true) => {}
-                                Ok(false)|Err(_) => {
-                                    if let Err(error) = tokio::fs::create_dir_all("data/static").await{
-                                        visual::error(Some(error), "error occured while creating data/static directory");
-                                    };
-                                }
-                            }
-                            for lesson in &to_return{
-                                if let 
-                                (Some(class), Some(classroom), Some(teacher), Some(subject), Some(lessonh),Some(weekd), Some(academic), Some(sems)) = 
-                                    (lesson.class,lesson.classroom,lesson.teacher,lesson.subject,lesson.lessonh,lesson.weekday,lesson.academic_year,
-                                lesson.semester)
-                                {
-                                    match tokio::fs::write(format!("data/static/TEACHER:{}={}-{}|{}-{}",teacher,weekd,lessonh,academic,sems), 
-                                        crate::static_data::serialize([class,classroom,subject])
-                                    ).await
-                                    {
-                                        Ok   (_) => visual::debug("saved STATIC data"),
-                                        Err(err) => visual::error(Some(err), "Couldn't save STATIC data"),
-                                    }
-                                    match tokio::fs::write(format!("data/static/CLASS:{}={}-{}|{}-{}", class, weekd, lessonh,academic,sems),
-                                        crate::static_data::serialize([classroom,subject,teacher])).await
-                                    {
-                                        Ok (_)   => visual::debug("saved STATIC data"),
-                                        Err(err) => visual::error(Some(err), "Couldn't save STATIC data"), 
-                                    }
-                                }
-                            }
-
-                            drop(permit);
-                            return Ok(to_return);
-                        }
-                        else{
-                            return static_old_table(db).await;
-                        }
-                    }
-                    Err(_) => {
-                        return static_old_table(db).await;
-                    }
-                }
-        }
-    }
-    return static_old_table(db).await;
-}
-/// STATIC
-pub async fn static_old_table(db: &rusqlite::Connection) -> Result<Vec<JoinedLessonRaw>, ()>{
-    let mut to_return = vec![];
-    let largest_lessonh = &*LESSONHOURS.lock().await;
-    let largest_weekd   = &*WEEKDAY.lock().await;
-    let largest_class   = &*CLASSES.lock().await;
-    let (academic_year, semester) = get_year_and_semester(db).unwrap_or_default();
-
-    for lc in 0..*largest_class{
-        for lw in 0..*largest_weekd{
-            for lh in 0..*largest_lessonh{
-                if let Ok(b) = tokio::fs::read(format!("data/static/CLASS:{}={}-{}|{}-{}",lc,lw,lh,academic_year,semester)).await{
-                        let mut slice: [u8; 6] = [0; 6];
-                        for (ind, i) in b.into_iter().enumerate(){
-                            slice[ind] = i;
-                            if ind+1 == 6{
-                                break;
-                            }
-                        }
-                        let data = crate::static_data::deserialize(slice);
-                        to_return.push(JoinedLessonRaw{
-                            weekday: Some(lw),
-                            teacher: Some(data[2]),
-                            classroom: Some(data[1]),
-                            subject: Some(data[0]),
-                            lessonh: Some(lh),
-                            class: Some(lc),
-                            academic_year: Some(academic_year),
-                            semester: Some(semester)
-                        });
-                }
-            }
-        }
-    }
-
-    Ok(to_return)
-}
-
-pub fn raw_lessons_to_lesson(vector: Vec<JoinedLessonRaw>, db: &rusqlite::Connection) -> Result<Vec<JoinedLesson>, rusqlite::Error>{
-    let mut to_return = vec![];
-    let mut already_visited_class     : HashMap<u16, String> = HashMap::new();
-    let mut already_visited_classroom : HashMap<u16, String> = HashMap::new();
-    let mut already_visited_teacher   : HashMap<u16, String> = HashMap::new();
-    let mut already_visited_subject   : HashMap<u16, String> = HashMap::new();
-    let mut already_visited_lessonh   : HashMap<u16, JoinedHour> = HashMap::new();
-    let mut already_visited_semester  : HashMap<u8, String> = HashMap::new();
-    let mut already_visited_year      : HashMap<u8, String> = HashMap::new();
-    for element in vector{
-        let mut current_to_lesson : JoinedLesson = JoinedLesson::default();
-        if let Some(class_id) = element.class{
-            if let Some(visited) = already_visited_class.get(&class_id){
-                current_to_lesson.class = Some(visited.to_string());
-            }
-            else{
-                let mut stmt = db.prepare("SELECT * FROM Classes WHERE class_id = ?1")?;
-                let (id, name) = stmt.query_row([class_id], |row| {
-                    Ok((
-                        row.get::<usize, u16>(0).ok(), 
-                        row.get::<usize, String>(1).ok()
-                    ))
-                })?;
-                already_visited_class.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
-                current_to_lesson.class = name;
-            }
-        }
-        if let Some(classroom_id) = element.classroom{
-            if let Some(visited) = already_visited_classroom.get(&classroom_id){
-                current_to_lesson.classroom = Some(visited.to_string());
-            }
-            else{
-                let mut stmt = db.prepare("SELECT * FROM Classrooms WHERE classroom_id = ?1")?;
-                let (id, name) = stmt.query_row([classroom_id], |row| {
-                    Ok((
-                        row.get::<usize, u16>(0).ok(), 
-                        row.get::<usize, String>(1).ok()
-                    ))
-                })?;
-                already_visited_classroom.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
-                current_to_lesson.classroom = name;
-            }
-        }
-        if let Some(teacher_id) = element.teacher{
-            if let Some(visited) = already_visited_teacher.get(&teacher_id){
-                current_to_lesson.teacher = Some(visited.to_string());
-            }
-            else{
-                let mut stmt = db.prepare("SELECT * FROM Teachers WHERE teacher_id = ?1")?;
-                let (id, name) = stmt.query_row([teacher_id], |row| {
-                    Ok((
-                        row.get::<usize, u16>(0).ok(), 
-                        row.get::<usize, String>(1).ok()
-                    ))
-                })?;
-                already_visited_teacher.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
-                current_to_lesson.teacher = name;
-            }
-        }
-        if let Some(subject_id) = element.subject{
-            if let Some(visited) = already_visited_subject.get(&subject_id){
-                current_to_lesson.subject = Some(visited.to_string());
-            }
-            else{
-                let mut stmt = db.prepare("SELECT * FROM Subjects WHERE subject_id = ?1")?;
-                let (id, name) = stmt.query_row([subject_id], |row| {
-                    Ok((
-                        row.get::<usize, u16>(0).ok(), 
-                        row.get::<usize, String>(1).ok()
-                    ))
-                })?;
-                already_visited_subject.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
-                current_to_lesson.subject = name;
-            }
-        }
-        if let Some(lessonh) = element.lessonh{
-            if let Some(visited) = already_visited_lessonh.get(&lessonh){
-                current_to_lesson.lessonh = *visited;
-            }
-            else{
-                let mut stmt = db.prepare("SELECT * FROM LessonHours WHERE lesson_hour = ?1")?;
-                let (id, start_hour, start_minute, end_hour, end_minute) = stmt.query_row([lessonh], |row| {
-                    Ok((
-                        row.get::<usize, u16>(0).ok(), 
-                        row.get::<usize, u8>(1).ok(),
-                        row.get::<usize, u8>(1).ok(),
-                        row.get::<usize, u8>(1).ok(),
-                        row.get::<usize, u8>(1).ok()
-                    ))
-                })?;
-                let current = JoinedHour{
-                    lesson_hour: id,
-                    start_hour,
-                    start_minute,
-                    end_hour,
-                    end_minutes: end_minute
-                };
-                already_visited_lessonh.insert(id.unwrap_or_default(), current);
-                current_to_lesson.lessonh = current;
-            }
-        }
-        if let Some(semester) = element.semester{
-            if let Some(visited) = already_visited_semester.get(&semester){
-                current_to_lesson.semester = Some(visited.to_string());
-            }
-            else{
-                let mut stmt = db.prepare("SELECT * FROM Semesters WHERE semester_num = ?1")?;
-                let (id, name) = stmt.query_row([semester], |row| {
-                    Ok((
-                        row.get::<usize, u8>(0).ok(), 
-                        row.get::<usize, String>(1).ok()
-                    ))
-                })?;
-                already_visited_semester.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
-                current_to_lesson.semester = name;
-            }
-        }
-        if let Some(year) = element.academic_year{
-            if let Some(visited) = already_visited_year.get(&year){
-                current_to_lesson.academic_year = Some(visited.to_string());
-            }
-            else{
-                let mut stmt = db.prepare("SELECT * FROM Years WHERE academic_year = ?1")?;
-                let (id, name) = stmt.query_row([year], |row| {
-                    Ok((
-                        row.get::<usize, u8>(0).ok(), 
-                        row.get::<usize, String>(1).ok()
-                    ))
-                })?;
-                already_visited_year.insert(id.unwrap_or_default(), name.clone().unwrap_or_default());
-                current_to_lesson.academic_year = name;
-            }
-        }
-        to_return.push(current_to_lesson);
-    }
-    Ok(to_return)
-}
-
 /// DYNAMIC
 pub fn get_lessons_by_teacher_id(teacher_id: u16, db: &rusqlite::Connection) -> Result<Vec<JoinedLesson>, rusqlite::Error> {
     let now         = chrono::Local::now();
     let now_iso8601 = now.to_rfc3339();
-    let weekd       = now.weekday() as u8 + 1;
-    let query = 
-    "SELECT 
-    Lessons.weekday, Classes.class_name, Classrooms.classroom_name, Subjects.subject_name,
-    LessonHours.start_hour, LessonHours.start_minutes, LessonHours.end_hour, LessonHours.end_minutes, Lessons.lesson_hour
-    FROM Lessons 
-    JOIN Classes     ON Lessons.class_id      = Classes.class_id
-    JOIN Classrooms  ON Lessons.classroom_id  = Classrooms.classroom_id 
-    JOIN Subjects    ON Lessons.subject_id    = Subjects.subject_id
-    JOIN LessonHours ON Lessons.lesson_hour   = LessonHours.lesson_hour
-    JOIN Years       ON Lessons.academic_year = Years.academic_year
-    JOIN Semesters   ON Lessons.semester      = Semesters.semester
-    WHERE Lessons.teacher_id        < ?1 AND Lessons.weekday         = ?2
-    AND   Semesters.start_date      < ?5 AND Semesters.end_date      > ?5
-    AND   Years.start_date          < ?5 AND Years.end_date          > ?5
+    let query = "
+SELECT 
+  Lessons.weekday, 
+  Classes.class_name,
+  Classrooms.classroom_name, 
+  Subjects.subject_name, 
+  LessonHours.start_hour, 
+  LessonHours.start_minutes, 
+  LessonHours.end_hour, 
+  LessonHours.end_minutes
+FROM 
+  Lessons
+  JOIN Classrooms  ON Lessons.classroom_id  = Classrooms.classroom_id
+  JOIN Teachers    ON Lessons.teacher_id    = Teachers.teacher_id
+  JOIN Classes     ON Lessons.class_id      = Classes.class_id
+  JOIN Subjects    ON Lessons.subject_id    = Subjects.subject_id
+  JOIN LessonHours ON Lessons.lesson_hour   = LessonHours.lesson_hour
+  JOIN Years       ON Lessons.academic_year = Years.academic_year
+  JOIN Semesters   ON Lessons.semester      = Semesters.semester
+WHERE 
+  Lessons.class_id < ?1
+  AND Semesters.start_date < ?2 AND Semesters.end_date > ?2
+  AND Years.start_date     < ?2 AND Years.end_date     > ?2
     ";
     let mut stmt = db.prepare(query)?;
 
-    let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_iso8601], |row|{
+    let iter = stmt.query_map([teacher_id.to_string(), now_iso8601], |row|{
         Ok(
             JoinedLesson{
                 weekday   : row.get(0).ok(),
@@ -667,26 +336,27 @@ pub fn get_lessons_by_teacher_id(teacher_id: u16, db: &rusqlite::Connection) -> 
 pub fn get_lessons_by_class_id(class_id: u16, db: &rusqlite::Connection) -> Result<Vec<JoinedLesson>, rusqlite::Error> {
     let now         = chrono::Local::now();
     let now_iso8601 = now.to_rfc3339();
-    let weekd       = now.weekday() as u8 + 1;
     let query = 
-    "SELECT 
-    Lessons.weekday, Teachers.teacher_name, Classrooms.classroom_name, Subjects.subject_name,
-    LessonHours.start_hour, LessonHours.start_minutes, LessonHours.end_hour, LessonHours.end_minutes,
-    Years.start_date, Years.end_date, 
-    FROM Lessons 
+    "
+    SELECT 
+        Lessons.weekday, Teachers.teacher_name, Classrooms.classroom_name, Subjects.subject_name,
+        LessonHours.start_hour, LessonHours.start_minutes, LessonHours.end_hour, LessonHours.end_minutes,
+        Years.start_date, Years.end_date 
+    FROM 
+        Lessons 
     JOIN Classrooms  ON Lessons.classroom_id  = Classrooms.classroom_id 
     JOIN Teachers    ON Lessons.teacher_id    = Teachers.teacher_id
     JOIN Subjects    ON Lessons.subject_id    = Subjects.subject_id
     JOIN LessonHours ON Lessons.lesson_hour   = LessonHours.lesson_hour
     JOIN Years       ON Lessons.academic_year = Years.academic_year
     JOIN Semesters   ON Lessons.semester      = Semesters.semester
-    WHERE Lessons.class_id          < ?1 AND Lessons.weekday         = ?2
-    AND   Semesters.start_date      < ?3 AND Semesters.end_date      > ?3
-    AND   Years.start_date          < ?3 AND Years.end_date          > ?3
+    WHERE Lessons.class_id          < ?1
+    AND   Semesters.start_date      < ?2 AND Semesters.end_date      > ?2
+    AND   Years.start_date          < ?2 AND Years.end_date          > ?2
     ";
     let mut stmt = db.prepare(query)?;
 
-    let iter = stmt.query_map([class_id.to_string(), weekd.to_string(), now_iso8601], |row|{
+    let iter = stmt.query_map([class_id.to_string(), now_iso8601], |row|{
         Ok(
             JoinedLesson{
                 weekday   : row.get(0).ok(),
@@ -716,25 +386,24 @@ pub fn get_lessons_by_class_id(class_id: u16, db: &rusqlite::Connection) -> Resu
 pub fn get_duties_for_teacher(teacher_id: u16, db: &rusqlite::Connection) -> Result<Vec<JoinedDuty>, rusqlite::Error>{
     let now         = chrono::Local::now();
     let now_iso8601 = now.to_rfc3339();
-    let weekd       = now.weekday() as u8 + 1;
     let query = "
     SELECT 
-    Corridors.corridor_name, Breaks.start_hour, Breaks.start_minutes, Breaks.end_hour, Breaks.end_minutes, Breaks.break_num
+        Corridors.corridor_name, Breaks.start_hour, Breaks.start_minutes, Breaks.end_hour, Breaks.end_minutes, Breaks.break_num, Duties.weekday
     FROM Duties
     JOIN Teachers  ON Duties.teacher_id    = Teachers.teacher_id
     JOIN Breaks    ON Duties.break_num     = Breaks.break_num
     JOIN Corridors ON Duties.place_id      = Corridors.corridor 
     JOIN Years     ON Duties.academic_year = Years.academic_year
     JOIN Semesters ON Duties.semester      = Semesters.semester
-    WHERE Duties.teacher_id  = ?1 AND Duties.weekday     = ?2 
-    AND Semesters.start_date < ?3 AND Semesters.end_date > ?3
-    AND Years.start_date     < ?3 AND Years.end_date     > ?3
+    WHERE Duties.teacher_id  = ?1
+    AND Semesters.start_date < ?2 AND Semesters.end_date > ?2
+    AND Years.start_date     < ?2 AND Years.end_date     > ?2
     ";
     let mut stmt = db.prepare(query)?;
-    let iter = stmt.query_map([teacher_id.to_string(), weekd.to_string(), now_iso8601], |row| {
+    let iter = stmt.query_map([teacher_id.to_string(), now_iso8601], |row| {
         Ok(
             JoinedDuty{
-                weekday       : None,
+                weekday       : row.get(6).ok(),
                 place         : row.get(0).ok(),
                 teacher       : None,
                 semester      : None,
@@ -864,9 +533,10 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                     db.execute("INSERT INTO Years (academic_year, year_name, start_date, end_date) 
                         VALUES (?1, ?2, ?3, ?4)
                         ON CONFLICT (academic_year) DO UPDATE SET 
-                        year_name = excluded.year, start_date = excluded.start_date, end_date = excluded.end_date"
-                        ,[academic_year.to_string(), year_name, start_date, end_date]
+                        year_name = excluded.year_name, start_date = excluded.start_date, end_date = excluded.end_date"
+                        ,[academic_year.to_string(), year_name.replace("%20", " "), start_date, end_date]
                     )?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Duty(Some((weekd, break_num, teacher_id, place_id, semester, academic_year))) => {
                     db.execute("INSERT INTO Duties (weekday, break_num, teacher_id, place_id, semester, academic_year)
@@ -876,21 +546,24 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                     place_id = excluded.place_id"
                         ,[weekd.into(), break_num.into(), teacher_id, place_id, semester.into(), academic_year.into()]
                     )?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Class(Some((class_id, class_name))) => {
                     db.execute("INSERT INTO Classes (class_id, class_name) 
                         VALUES (?1, ?2)
                         ON CONFLICT (class_id)
                         DO UPDATE SET class_name = excluded.class_name"
-                        , [class_id.to_string(), class_name])?;
+                        , [class_id.to_string(), class_name.replace("%20", " ")])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Break(Some((break_num, start_hour, start_minute, end_hour, end_minute))) => {
                     db.execute("INSERT INTO Breaks (break_num, start_hour, start_minutes, end_hour, end_minutes) 
-                        VALUES (?1, ?2, ?3, ?4)
+                        VALUES (?1, ?2, ?3, ?4, ?5)
                         ON CONFLICT (break_num)
                         DO UPDATE SET start_hour = excluded.start_hour, start_minutes = excluded.start_minutes,
                         end_hour = excluded.end_hour, end_minutes = excluded.end_minutes"
                         , [break_num, start_hour, start_minute, end_hour, end_minute])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Lesson(Some((weekd, class_id, classroom_id, teacher_id, subject_id, lessonh, semester, academic_year))) => {
                     db.execute(
@@ -903,20 +576,23 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                     subject_id = excluded.subject_id
                     ", 
                     [weekd.into(), class_id, classroom_id, teacher_id, subject_id, lessonh, semester.into(), academic_year.into()])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Teacher(Some((teacher_id, teacher_name))) => {
                     db.execute("INSERT INTO Teachers (teacher_id, teacher_name) 
                         VALUES (?1, ?2)
                         ON CONFLICT (teacher_id)
                         DO UPDATE SET teacher_name = excluded.teacher_name"
-                        , [teacher_id.to_string(), teacher_name])?;
+                        , [teacher_id.to_string(), teacher_name.replace("%20", " ")])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Subject(Some((subject_id, subject_name))) => {
                     db.execute("INSERT INTO Subjects (subject_id, subject_name) 
                         VALUES (?1, ?2)
                         ON CONFLICT (subject_id)
                         DO UPDATE SET subject_name = excluded.subject_name"
-                        , [subject_id.to_string(), subject_name])?;
+                        , [subject_id.to_string(), subject_name.replace("%20", " ")])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Semester(Some((semester, semester_name, start_date, end_date))) => {
                     db.execute("INSERT INTO Semesters (semester, semester_name, start_date, end_date)
@@ -926,21 +602,24 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                     semester_name = excluded.semester_name, 
                     start_date = excluded.start_date, 
                     end_date = excluded.end_date"
-                        , [semester.to_string(), semester_name, start_date, end_date])?;
+                        , [semester.to_string(), semester_name.replace("%20", " "), start_date, end_date])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Classroom(Some((classroom_id, classroom_name))) => {
                     db.execute("INSERT INTO Classrooms (classroom_id, classroom_name) 
                         VALUES (?1, ?2)
                         ON CONFLICT (classroom_id)
                         DO UPDATE SET classroom_name = excluded.classroom_name"
-                        , [classroom_id.to_string(), classroom_name])?;
+                        , [classroom_id.to_string(), classroom_name.replace("%20", " ")])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::Corridors(Some((corridor_id, corridor_name))) => {
                     db.execute("INSERT INTO Corridors (corridor, corridor_name) 
                         VALUES (?1, ?2)
                         ON CONFLICT (corridor)
                         DO UPDATE SET corridor_name = excluded.corridor_name"
-                        , [corridor_id.to_string(), corridor_name])?;
+                        , [corridor_id.to_string(), corridor_name.replace("%20", " ")])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 POST::LessonHours(Some((lesson_num, start_hour, start_minute, end_hour, end_minute))) => {
                     db.execute("INSERT INTO LessonHours (lesson_hour, start_hour, start_minutes, end_hour, end_minutes)
@@ -952,12 +631,12 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                     start_minutes = excluded.start_minutes,
                     end_minutes   = excluded.end_minutes",
                     [lesson_num, start_hour.into(), start_minute.into(), end_hour.into(), end_minute.into()])?;
+                    return Ok("msat/201-Created".to_string())
                 }
                 _ => {
                     return Ok("msat/500-Internal-Server-Error&error=error+occured+while+inserting+values".to_string());
                 }
             }
-            Ok("msat/201-Created".to_string())
         }
         MainpulationType::Get(get) => {
             match get{

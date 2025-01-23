@@ -179,9 +179,12 @@ function admin_dashboard_add(){
 	ROOT.innerHTML = `
 	<div style='height: 80vh; display:flex;align-contents:center;'>
 		<div class='login'>
-			<h1>${en_or_pl("Add data to database", "Dodaj dane do bazy danych")}</h1>
+			<h1>${en_or_pl("Manipulate Database", "Manipuluj Bazą danych")}</h1>
 			<select id = 'select'>
 				<option>-</option>
+				<option value='get1'>${en_or_pl("Lesson Table for Class", "Plan lekcji dla klasy")}</option>
+				<option value='get3'>${en_or_pl("Lesson Table for Teacher", "Plan lekcji dla nauczyciela")}</option>
+				<option value='get2'>${en_or_pl("Duty List for Teacher", "Lista Dyżuru dla Nauczyciela")}</option>
 				<option value='l1'>${en_or_pl("Add lessons", "Dodaj Lekcję")}</option>
 				<option value='d3'>${en_or_pl("Add duty", "Wstaw dyżur")}</option>
 				<option value='y2'>${en_or_pl("Add academic year", "Wstaw rok szkolny")}</option>
@@ -197,22 +200,71 @@ function admin_dashboard_add(){
 			<div id='form' style='display:flex;flex-direction:column'>
 
 			</div>
-			<button id='submit'>${en_or_pl("Add data", "Wstaw dane")}</button>
+			<div id='msg'>
+
+			</div>
+			<button id='submit'>${en_or_pl("Do operation", "Przeprowadź operację")}</button>
 		</div>
 	</div>
 	`;
 	$("select").addEventListener('change', () => {
+		$('msg').innerHTML = '';
 		switch ($("select").value){
+			case "get1":
+				$("form").innerHTML = `
+				<input id='ci' type='number' min=1 max=65535 placeholder='${en_or_pl("Class Id", "Identyfikator klasy")}'>
+				`;
+				$("submit").onclick = function () {
+					const ci = $('ci').value;
+					if (ci!=null){
+						fetch (`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=GET+1&class_id=${ci}`)
+						.then(response => response.text())
+						.then(data => {
+							$("msg").innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "get2":
+				$("form").innerHTML = `
+				<input id='ti' type='number' min=1 max=65535 placeholder=${en_or_pl("Teacher ID", "Identyfikator Nauczyciela")}>
+				`
+				$("submit").onclick = function(){
+					let ti = $('ti').value;
+					if (ti!=null){
+						fetch(`/?msat/${MSAT_VERSION}&password=${get_cookie('password')}&method=GET+2&teacher_id=${ti}`)
+						.then(response => response.text())
+						.then(data => {
+							$('msg').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "get3":
+				$("form").innerHTML = `
+				<input id='ti' type='number' min=1 max=65535 placeholder=${en_or_pl("Teacher ID", "Identyfikator Nauczyciela")}>
+				`
+				$("submit").onclick = function(){
+					let ti = $('ti').value;
+					if (ti!=null){
+						fetch(`/?msat/${MSAT_VERSION}&password=${get_cookie('password')}&method=GET+3&teacher_id=${ti}`)
+						.then(response => response.text())
+						.then(data => {
+							$('msg').innerHTML = data;
+						})
+					}
+				}
+				break;
 			case "l1":
 				$("form").innerHTML = `
-				<input id=wd type=number min=1 max=7 placeholder=${en_or_pl("Weekday", "Dzień tygodnia")}>
-				<input id=ci type=number min=1 max=65535 placeholder=${en_or_pl("Class ID", "Klasa(8)")}>
-				<input id=cl type=number min=1 max=65535 placeholder=${en_or_pl("Classroom ID", "Klasa")}>
-				<input id=ti type=number min=1 max=65535 placeholder=${en_or_pl("Teacher ID", "Nauczyciel")}>
-				<input id=si type=number min=1 max=65535 placeholder=${en_or_pl("Subject ID", "Przedmiot")}>
-				<input id=lh type=number min=1 max=255 placeholder=${en_or_pl("Lesson hour", "Godzina Lekcyjna")}>
-				<input id=se type=number min=1 max=255 placeholder=${en_or_pl("Semester", "Semestr")}>
-				<input id=ay type=number min=1 max=255 placeholder=${en_or_pl("Academic Year", "Rok szkolny")}>
+				<input id='wd' type='number' min=1 max=7 placeholder=${en_or_pl("Weekday", "Dzień tygodnia")}>
+				<input id='ci' type='number' min=1 max=65535 placeholder=${en_or_pl("Class ID", "Klasa(8)")}>
+				<input id='cl' type='number' min=1 max=65535 placeholder=${en_or_pl("Classroom ID", "Klasa")}>
+				<input id='ti' type='number' min=1 max=65535 placeholder=${en_or_pl("Teacher ID", "Nauczyciel")}>
+				<input id='si' type='number' min=1 max=65535 placeholder=${en_or_pl("Subject ID", "Przedmiot")}>
+				<input id='lh' type='number' min=1 max=255 placeholder=${en_or_pl("Lesson hour", "Godzina Lekcyjna")}>
+				<input id='se' type='number' min=1 max=255 placeholder=${en_or_pl("Semester", "Semestr")}>
+				<input id='ay' type='number' min=1 max=255 placeholder=${en_or_pl("Academic Year", "Rok szkolny")}>
 				`;
 				$("submit").onclick = function() {
 					let wd = $("wd").value;
@@ -228,12 +280,7 @@ function admin_dashboard_add(){
 						`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+1&weekday=${wd}&class_id=${ci}&classroom_id=${cl}&teacher_id=${ti}&subject_id=${si}&semester=${se}&academic_year=${ay}&lesson_hour=${lh}`
 						).then(response => response.text())
 						.then(data => {
-							if (data === "msat/201-Created"){
-								alert(en_or_pl("Succesfully inserted data!", "Pomyślnie dodano dane!"));
-							}
-							else{
-								alert(data);
-							}
+							alert(data);
 						})
 					}
 					else{
@@ -241,14 +288,35 @@ function admin_dashboard_add(){
 					}
 				}
 				break;
+			case "y2":
+				$("form").innerHTML = `
+				<input id='yn' type='number' min=1 max=7 placeholder="${en_or_pl("Year Number", "Numer Roku")}">
+				<input id='yn1' type='text'  placeholder="${en_or_pl("Year Name","Nazwa roku")}">
+				<input id='st' type='date'   placeholder="${en_or_pl("Start", "Rozpoczęcie")}">
+				<input id='en' type='date'   placeholder="${en_or_pl("End", "Zakończenie")}">
+				`
+				$("submit").onclick = function() {
+					const date1 = new Date($("st").value).toISOString();
+					const date2 = new Date($("en").value).toISOString();
+					const year_number = $("yn").value;
+					const year_name = $("yn1").value;
+					if (year_name!=null&&year_number!=null&&date1!=null&&date2!=null){
+						fetch (`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+2&academic_year=${year_number}&year_name=${year_name}&start_date=${date1}&end_date=${date2}`)
+						.then(response => response.text())
+						.then(data => {
+							alert(data);
+						})
+					}
+				}
+				break;
 			case "d3":
 				$("form").innerHTML = `
-				<input id=wd type=number min=1 max=7 placeholder="${en_or_pl("Weekday", "Dzień Tygodnia")}">
-				<input id=bn type=number min=1 max=255 placeholder="${en_or_pl("Break num","Przerwa")}">
-				<input id=ti type=number min=1 max=65535 placeholder="${en_or_pl("Teacher ID", "Nauczyciel")}">
-				<input id=se type=number min=1 max=255 placeholder="${en_or_pl("Semester", "Semestr")}">
-				<input id=ay type=number min=1 max=255 placeholder="${en_or_pl("Academic Year", "Rok szkolny")}">
-				<input id=bp type=number min=1 max=255 placeholder="${en_or_pl("Break_Place", "MiejscePrzerwy")}">
+				<input id='wd' type='number' min=1 max=7 placeholder="${en_or_pl("Weekday", "Dzień Tygodnia")}">
+				<input id='bn' type='number' min=1 max=255 placeholder="${en_or_pl("Break num","Przerwa")}">
+				<input id='ti' type='number' min=1 max=65535 placeholder="${en_or_pl("Teacher ID", "Nauczyciel")}">
+				<input id='se' type='number' min=1 max=255 placeholder="${en_or_pl("Semester", "Semestr")}">
+				<input id='ay' type='number' min=1 max=255 placeholder="${en_or_pl("Academic Year", "Rok szkolny")}">
+				<input id='bp' type='number' min=1 max=255 placeholder="${en_or_pl("Break_Place", "MiejscePrzerwy")}">
 				`
 				$("submit").onclick = function() {
 					let wd = $("wd").value;
@@ -259,15 +327,10 @@ function admin_dashboard_add(){
 					let ay = $("ay").value;
 					if (wd!=null&&bn!=null&&ti!=null&&bp!=null&&se!=null&&ay!=null){
 						fetch(
-						`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+2&weekday=${wd}&teacher_id=${ti}&semester=${se}&academic_year=${ay}&break_num=${bn}&place_id=${bp}`
+`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+3&weekday=${wd}&teacher_id=${ti}&semester=${se}&academic_year=${ay}&break_num=${bn}&place_id=${bp}`
 						).then(response => response.text())
 						.then(data => {
-							if (data === "msat/201-Created"){
-								alert(en_or_pl("Succesfully inserted data!", "Pomyślnie dodano dane!"));
-							}
-							else{
-								alert(data);
-							}
+							alert(data);
 						})
 					}
 					else{
@@ -275,23 +338,163 @@ function admin_dashboard_add(){
 					}
 				}
 				break;
-			case "y2":
-				break;
 			case "b4":
+				$("form").innerHTML = `
+				<input id='bn' type='number' min=1 max=255 placeholder="${en_or_pl("Break Num", "Numer Przerwy")}">
+				<input id='sh' type='number' min=0 max=24 placeholder="${en_or_pl("Start Hour", "Godzina Rozpoczęcia")}">
+				<input id='sm' type='number' min=0 max=60 placeholder="${en_or_pl("Start Minute", "Minuta Rozpoczęcia")}">
+				<input id='eh' type='number' min=0 max=24 placeholder="${en_or_pl("End Hour", "Godzina Zakończenia")}">
+				<input id='em' type='number' min=0 max=60 placeholder="${en_or_pl("End Minute", "Minuta Zakończenia")}">
+				`
+				$("submit").onclick = function(){
+					const bn = $("bn").value;
+					const sh = $("sh").value;
+					const sm = $("sm").value;
+					const eh = $("eh").value;
+					const em = $("em").value;
+
+					if (bn!=null&&sh!=null&&sm!=null&&eh!=null&&em!=null){
+						fetch(`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+4&break_num=${bn}&start_hour=${sh}&start_minute=${sm}&end_hour=${eh}&end_minute=${em}`)
+						.then(response => response.text())
+						.then(data => {
+							alert(data);
+						})
+					}
+				}
 				break;
 			case "s5":
+				$("form").innerHTML = `
+				<input id='yn' type='number' min=1 max=7 placeholder="${en_or_pl("Semester Number", "Numer Semestru")}">
+				<input id='yn1' type='text'   placeholder="${en_or_pl("Semester Name","Nazwa semestru")}">
+				<input id='st' type='date' placeholder="${en_or_pl("Start", "Rozpoczęcie")}">
+				<input id='en' type='date' placeholder="${en_or_pl("End", "Zakończenie")}">
+				`;
+				$("submit").onclick = function() {
+					const date1 = new Date($("st").value).toISOString();
+					const date2 = new Date($("en").value).toISOString();
+					const sem_number = $("yn").value;
+					const sem_name = $("yn1").value;
+					if (sem_name!=null&&sem_number!=null&&date1!=null&&date2!=null){
+						fetch (`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+5&semester=${sem_number}&semester_name=${sem_name}&start_date=${date1}&end_date=${date2}`)
+						.then(response => response.text())
+						.then(data => {
+							alert(data);
+						})
+					}
+				}
 				break;
 			case "l6":
+				$("form").innerHTML = `
+				<input id=bn type=number min=1 max=255 placeholder="${en_or_pl("Lesson Hour", "Numer Lekcji")}">
+				<input id=sh type=number min=0 max=24 placeholder="${en_or_pl("Start Hour", "Godzina Rozpoczęcia")}">
+				<input id=sm type=number min=0 max=60 placeholder="${en_or_pl("Start Minute", "Minuta Rozpoczęcia")}">
+				<input id=eh type=number min=0 max=24 placeholder="${en_or_pl("End Hour", "Godzina Zakończenia")}">
+				<input id=em type=number min=0 max=60 placeholder="${en_or_pl("End Minute", "Minuta Zakończenia")}">
+				`
+				$("submit").onclick = function(){
+					const bn = $("bn").value;
+					const sh = $("sh").value;
+					const sm = $("sm").value;
+					const eh = $("eh").value;
+					const em = $("em").value;
+
+					if (bn!=null&&sh!=null&&sm!=null&&eh!=null&&em!=null){
+						fetch(`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+6&lesson_num=${bn}&start_hour=${sh}&start_minute=${sm}&end_hour=${eh}&end_minute=${em}`)
+						.then(response => response.text())
+						.then(data => {
+							alert(data);
+						})
+					}
+				}
 				break;
 			case "t7":
+				$("form").innerHTML = `
+				<input id=iid type=number min=1 max=65535 placeholder="${en_or_pl("Teacher ID", "Identyfikator Nauczyciela")}">
+				<input id=iname type=text placeholder="${en_or_pl("Teacher Name", "Imię Nauczyciela")}">
+				`
+				$("submit").onclick = function(){
+					const id = $("iid").value;
+					const name = $("iname").value;
+
+					if (id!=null&&name!=null){
+						fetch (`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+7&teacher_id=${id}&teacher_name=${name}`)
+						.then(response => response.text())
+						.then(data => {
+							alert (data);
+						})
+					}
+				}
 				break;
 			case "c8":
+				$("form").innerHTML = `
+				<input id=iid type=number min=1 max=65535 placeholder="${en_or_pl("Class ID", "Identyfikator Klasy")}">
+				<input id=iname type=text placeholder="${en_or_pl("Class Name", "Nazwa Klasy")}">
+				`
+				$("submit").onclick = function(){
+					const id = $("iid").value;
+					const name = $("iname").value;
+
+					if (id!=null&&name!=null){
+						fetch (`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+8&class_id=${id}&class_name=${name}`)
+						.then(response => response.text())
+						.then(data => {
+							alert (data);
+						})
+					}
+				}
 				break;
 			case "c9":
+				$("form").innerHTML = `
+				<input id=iid type=number min=1 max=65535 placeholder="${en_or_pl("Classroom ID", "Identyfikator Klasy")}">
+				<input id=iname type=text placeholder="${en_or_pl("Classroom Name", "Nazwa Klasy")}">
+				`
+				$("submit").onclick = function(){
+					const id = $("iid").value;
+					const name = $("iname").value;
+
+					if (id!=null&&name!=null){
+						fetch (`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+9&classroom_id=${id}&classroom_name=${name}`)
+						.then(response => response.text())
+						.then(data => {
+							alert (data);
+						})
+					}
+				}
 				break;
 			case "s10":
+				$("form").innerHTML = `
+				<input id=iid type=number min=1 max=65535 placeholder="${en_or_pl("Subject ID", "Identyfikator Przedmiotu")}">
+				<input id=iname type=text placeholder="${en_or_pl("Subject Name", "Nazwa Przedmiotu")}">
+				`
+				$("submit").onclick = function(){
+					const id = $("iid").value;
+					const name = $("iname").value;
+
+					if (id!=null&&name!=null){
+						fetch (`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+10&subject_id=${id}&subject_name=${name}`)
+						.then(response => response.text())
+						.then(data => {
+							alert (data);
+						})
+					}
+				}
 				break;
 			case "c11":
+				$("form").innerHTML = `
+				<input id=iid type=number min=1 max=65535 placeholder="${en_or_pl("Place ID", "Identyfikator Miejsca")}">
+				<input id=iname type=text placeholder="${en_or_pl("Place Name", "Nazwa Miejsca")}">
+				`
+				$("submit").onclick = function(){
+					const id = $("iid").value;
+					const name = $("iname").value;
+					if (id!=null&&name!=null){
+						fetch (`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=POST+11&place_id=${id}&place_name=${name}`)
+						.then(response => response.text())
+						.then(data => {
+							alert (data);
+						})
+					}
+				}
 				break;
 		}
 	})
