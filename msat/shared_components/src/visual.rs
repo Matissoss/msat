@@ -9,12 +9,23 @@ use crate::consts;
 
 pub fn main(){
     if consts::ARGS.contains(&"--help".to_string()){
-        println!("Help");
+        println!(
+            "msat {}
+Flags:
+    --no-output
+    --color 
+    --debug 
+    --info
+            "
+            , consts::VERSION);
         std::process::exit(0);
     }
 }
 
 pub fn info(inf: &str){
+    if !*consts::INFO_ALLOWED || !*consts::OUTPUT_ALLOWED{
+        return;
+    }
     if *consts::COLOR_ALLOWED{
         println!("{} {}", consts::INFO.bold().blue(), inf);
     }
@@ -23,6 +34,9 @@ pub fn info(inf: &str){
     }
 }
 pub fn success(inf: &str){
+    if !*consts::OUTPUT_ALLOWED{
+        return;
+    }
     if *consts::COLOR_ALLOWED{
         println!("{} {}", consts::SUCCESS.bold().blue(), inf);
     }
@@ -40,6 +54,9 @@ where E: std::fmt::Display
 pub fn error<E>(err: Option<E>, inf: &str)
 where E: std::fmt::Display
 {
+    if !*consts::OUTPUT_ALLOWED{
+        return;
+    }
     if *consts::COLOR_ALLOWED{
         match err{
             Some(err) => {
@@ -63,6 +80,9 @@ where E: std::fmt::Display
 }
 
 pub fn debug(inf: &str){
+    if !*consts::OUTPUT_ALLOWED{
+        return;
+    }
     if *consts::DEBUG_MODE{
         println!("{} {}", consts::DEBUG, inf);
     }

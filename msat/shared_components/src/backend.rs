@@ -10,7 +10,6 @@ use rusqlite::{
     OpenFlags  as Flags,
     Error      as SQLiteError
 };
-use chrono::Datelike;
 use tokio::fs;
 use toml;
 use std::collections::HashMap;
@@ -18,7 +17,6 @@ use std::collections::HashMap;
 use crate::{consts::VERSION, visual};
 use crate::types::*;
 // static/const declaration
-#[allow(unused)]
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum RequestType{
     GET,
@@ -27,12 +25,10 @@ pub enum RequestType{
     #[default]
     Unknown
 }
-#[allow(unused)]
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Request{
     pub request: String,
 }
-#[allow(unused)]
 #[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct ParsedRequest{
     pub req_type: RequestType,
@@ -694,7 +690,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get(2).unwrap_or_default()
                         ))
                     })?;
-                    Ok(format!("msat/200-OK&year_name={}&start_date={}&end_date={}", 
+                    Ok(format!("Nazwa/Name: {} Od/From: {} Do/To: {}", 
                             year_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')))
                 }
                 GET::Lesson { class, lesson_hour, weekd, semester, academic_year } => {
@@ -726,7 +722,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                                     row.get(2).unwrap_or_default()
                             ))
                         })?;
-                    Ok(format!("msat/200-OK&semester_name={}&start_date={}&end_date={}", 
+                    Ok(format!("Nazwa/Name: {} Od/From: {} Do/To: {}", 
                         semester_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')))
                 }
                 GET::LessonHour { lesson_hour } => {
@@ -743,7 +739,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                         ))
                     })?;
                     Ok(
-                        format!("msat/200-OK&start_time={:02}:{:02}&end_time={:02}:{:02}", 
+                        format!("Od/From: {:02}:{:02} Do/To: {:02}:{:02}", 
                         start_hour, start_minutes, end_hour, end_minutes))
                 }
                 GET::Break { break_hour } => {
@@ -760,7 +756,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                         ))
                     })?;
                     Ok(
-                        format!("msat/200-OK&start_time={:02}:{:02}&end_time={:02}:{:02}", 
+                        format!("Od/From: {:02}:{:02} Do/To: {:02}:{:02}", 
                         start_hour, start_minutes, end_hour, end_minutes))
                 }
                 GET::Duty { weekd, break_num, teacher_id, semester, academic_year } => {
@@ -779,7 +775,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get::<usize, String>(0).unwrap_or_default()
                         )
                     })?;
-                    Ok(format!("msat/200-OK&duty_place={}", result.to_single('_')))
+                    Ok(format!("{}", result.to_single('_')))
                 }
             }
         }

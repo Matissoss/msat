@@ -34,6 +34,10 @@ const ROOT = $("ROOT");
 const NAVM = $("NAVM");
 
 function main(){
+	$("ADMIN").innerHTML = en_or_pl("Admin Panel", "Panel Administratora");
+	$("SEARCH").innerHTML = en_or_pl("Search Data", "Wyszukaj Dane");
+	$("DASHBOARD").innerHTML = en_or_pl("Dashboard", "Ekran Wejściowy");
+	$("INFO").innerHTML = en_or_pl("Information", "Informacje");
 	for (let i=0; i<NAVM.childElementCount; i++){
 		let link = NAVM.children[i];
 		if (link.getAttribute('href') != undefined){
@@ -56,9 +60,16 @@ function refresh(hash){
 					break;
 					case "#dashboard":
 						dashboard_comp();
+						break;
 					case "#admin":
 						admin_dashboard_comp();
-					break;
+						break;
+					case "#search":
+						search_component();
+						break;
+					default:
+						dashboard_comp();
+						break;
 				}
 			}
 			else{
@@ -95,6 +106,163 @@ function check_password(password){
 		alert(error);
 	});
 	return false;
+}
+
+function search_component(){
+	ROOT.innerHTML = `
+	<div class='login'> 
+		<h2>${en_or_pl("Search Data", "Wyszukaj Dane")}</h2>
+		<select id='selection'>
+			<option value='0'>-</option>
+			<option value='1'>${en_or_pl("Teacher", "Nauczyciel")}</option>
+			<option value='2'>${en_or_pl("Subject", "Przedmiot")}</option>
+			<option value='3'>${en_or_pl("Class", "Klasa(8)")}</option>
+			<option value='4'>${en_or_pl("Classroom", "Klasa")}</option>
+			<option value='5'>${en_or_pl("Lesson Hour", "Godzina Lekcyjna")}</option>
+			<option value='6'>${en_or_pl("Break Hour", "Przerwy")}</option>
+			<option value='7'>${en_or_pl("Duty Places", "Miejsca Przerwy")}</option>
+			<option value='8'>${en_or_pl("Semesters", "Semestry")}</option>
+			<option value='9'>${en_or_pl("Academic Years", "Lata szkolne")}</option>
+		</select>
+		<div id='selection_output'>
+
+		</div>
+		<div id='results'>
+
+		</div>
+		<button id='submit'>${en_or_pl("Search", "Wyszukaj")}</button>
+	</div>
+	`;
+	$("selection").onchange = function () {
+		switch ($("selection").value){
+			case "1":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Teacher ID", "Identyfikator Nauczyciela")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+4&password=${get_cookie('password')}&teacher_id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "2":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Subject ID", "Identyfikator Przedmiotu")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+5&password=${get_cookie('password')}&subject_id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "3":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Class ID", "Identyfikator Klasy")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+6&password=${get_cookie('password')}&class_id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "5":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Lesson Hour", "Godzina Lekcyjna")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+12&password=${get_cookie('password')}&lesson_hour=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "4":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Classroom ID", "Identyfikator Klasy")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+7&password=${get_cookie('password')}&classroom_id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "6":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Break Num", "Numer przerwy")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+11&password=${get_cookie('password')}&break_num=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "7":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Place ID", "Identyfikator miejsca")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+8&password=${get_cookie('password')}&place_id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "8":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Semester ID", "Identyfikator semestru")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+10&password=${get_cookie('password')}&sem_id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "9":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Year ID", "Identyfikator roku")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=GET+9&password=${get_cookie('password')}&year_id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+		}
+	}
 }
 
 function login_component(){
@@ -146,19 +314,12 @@ function info_component(){
 }
 
 function dashboard_comp(){
-	fetch(`/?msat/${MSAT_VERSION}&method=GET+3&password=${get_cookie("password")}&teacher_id=${get_cookie("teacher_id")}`)
+	ROOT.innerHTML = `<h1 style='text-align:center;'>${en_or_pl("Dashboard", "Ekran Wejściowy")}</h1>`;
+	fetch(
+	`/?msat/${MSAT_VERSION}&method=GET+2&password=${get_cookie("password")}&teacher_id=${get_cookie("teacher_id")}`)
 	.then(response => response.text())
-	.then(data => {
-		ROOT.innerHTML = data;
-		fetch(
-		`/?msat/${MSAT_VERSION}&method=GET+2&password=${get_cookie("password")}&teacher_id=${get_cookie("teacher_id")}`)
-		.then(response => response.text())
-		.then(data1 => {
-			ROOT.innerHTML += data1;
-		})
-	})
-	.catch(error => {
-		ROOT.innerHTML = `${en_or_pl("Error occured", "Wystąpił błąd")}: ${error}`;
+	.then(data1 => {
+		ROOT.innerHTML += `<h3 style='text-align:center;'>${en_or_pl("Duties", "Dyżury")}</h3>${data1}`;
 	})
 }
 
@@ -177,7 +338,6 @@ function en_or_pl(en, pl){
 
 function admin_dashboard_add(){
 	ROOT.innerHTML = `
-	<div style='height: 80vh; display:flex;align-contents:center;'>
 		<div class='login'>
 			<h1>${en_or_pl("Manipulate Database", "Manipuluj Bazą danych")}</h1>
 			<select id = 'select'>
@@ -205,7 +365,6 @@ function admin_dashboard_add(){
 			</div>
 			<button id='submit'>${en_or_pl("Do operation", "Przeprowadź operację")}</button>
 		</div>
-	</div>
 	`;
 	$("select").addEventListener('change', () => {
 		$('msg').innerHTML = '';

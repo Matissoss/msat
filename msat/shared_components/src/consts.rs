@@ -29,6 +29,12 @@ pub static COLOR_ALLOWED : LazyLock<bool> = LazyLock::new(|| {
 pub static DEBUG_MODE : LazyLock<bool> = LazyLock::new(|| {
     ARGS.contains(&"--debug".to_string())
 });
+pub static OUTPUT_ALLOWED : LazyLock<bool> = LazyLock::new(|| {
+    ARGS.contains(&"--no-output".to_string())
+});
+pub static INFO_ALLOWED : LazyLock<bool> = LazyLock::new(|| {
+    ARGS.contains(&"--info".to_string())
+});
 pub static LOCAL_IP: LazyLock<IpAddr> = LazyLock::new(|| 
     {
         IpAddr::from([127, 0, 0, 1])

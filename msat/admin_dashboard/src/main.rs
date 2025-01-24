@@ -107,15 +107,16 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
         if len == 0 {
         }
         else{
-        let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
-        if *DEBUG_MODE{
-            for l in request.lines(){
-                if !l.is_empty()
-                {
-                        visual::debug(l);
+
+            let request = String::from_utf8_lossy(&buffer[0..len]).to_string();
+            if *DEBUG_MODE{
+                for l in request.lines(){
+                    if !l.is_empty()
+                    {
+                            visual::debug(l);
+                    }
                 }
             }
-        }
             let lines = request
                 .lines()
                 .filter(|s| !s.is_empty())
@@ -332,7 +333,10 @@ async fn handle_custom_request
                                     (d.place, d.weekday, d.break_num.lesson_hour, d.break_num.start_hour, d.break_num.start_minute, 
                                      d.break_num.end_hour, d.break_num.end_minutes)
                                     {
-                                        filtered.insert((breakn, weekday), (place, format!("{:02}:{:02}", starth, startm), format!("{:02}:{:02}", endh, endm)));
+                                        filtered.insert(
+                                            (breakn, weekday), 
+                                            (place, format!("{:02}:{:02}", starth, startm), format!("{:02}:{:02}", endh, endm))
+                                        );
                                     }
                                 }
                                 if filtered.is_empty(){
@@ -341,7 +345,17 @@ async fn handle_custom_request
                                 let mut to_return = format!("<table class='duties'>");
                                 for (breakn, weekd) in filtered.keys(){
                                     if let Some((place, start, end)) = filtered.get(&(*breakn, *weekd)){
-                                        to_return.push_str(&format!("<tr><td><p>W {} w {} o {} - {}</p></td></tr>", weekd_to_string(&*lang, *weekd), place, start, end));
+                                        to_return.push_str(&format!("<tr><td><p>{}</p></td></tr>", 
+                                            format!("{} {} {} {} {} {} {} {}", lang.english_or("In", "W"), 
+                                                weekd_to_string(&*lang, *weekd),
+                                                lang.english_or("in", "w"),
+                                                place,
+                                                lang.english_or("from:", "od:"),
+                                                start, 
+                                                lang.english_or("to:", "do:"),
+                                                end)
+                                            )
+                                        );
                                     }
                                 }
                                 to_return.push_str("</table>");
@@ -374,36 +388,36 @@ async fn handle_custom_request
                                 }
                                 let mut current_class : String = "".to_string();
                                 let mut current_weekd : u8 = 0;
-                                let mut to_return     : String = "<ltable>".to_string();
+                                let mut to_return     : String = "<table>".to_string();
                                 
                                 for (class, weekd, lessonh) in unwrapped_lessons.keys(){
                                     if &current_class != class{
                                         current_weekd = 0;
                                         if current_class.is_empty(){
-                                            to_return.push_str("<cla>");
+                                            to_return.push_str("<tr>");
                                         }
                                         else{
-                                            to_return.push_str("</cla><cla>");
+                                            to_return.push_str("</tr><tr>");
                                         }
                                         current_class = class.clone();
                                     }
                                     if &current_weekd != weekd{
                                         if current_weekd != 0{
-                                            to_return.push_str("<wd>");
+                                            to_return.push_str("<td>");
                                         }
                                         else{
-                                            to_return.push_str("</wd><wd>");
+                                            to_return.push_str("</td><td>");
                                         }
                                         current_weekd = *weekd;
                                     }
                                     if let Some((subject, classroom, start, end)) = 
                                         unwrapped_lessons.get(&(class.to_string(), *weekd, *lessonh))
                                     {
-                                        to_return.push_str(&format!("<les><p>{}</p><p>{}</p><p>{}</p><p>{}</p></les>", 
+                                        to_return.push_str(&format!("<p>{}</p><p>{}</p><p>{}</p><p>{}</p>", 
                                                 subject, classroom, start, end));
                                     }
                                 }
-                                to_return.push_str("</ltable>");
+                                to_return.push_str("</table>");
                                 return to_return
                             }
 
@@ -421,6 +435,153 @@ async fn handle_custom_request
                             {
                                 Ok(tn) => return tn,
                                 Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                5 => {
+                    if let Some(sid_str) = args.get("subject_id"){
+                        if let Ok(sid) = sid_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Get(backend::GET::Subject { subject_id: sid }), 
+                                &*db.lock().await)
+                            {
+                                Ok(sn) => return sn,
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                6 => {
+                    if let Some(cid_str) = args.get("class_id"){
+                        if let Ok(cid) = cid_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Get(backend::GET::Class { class_id: cid }), 
+                                &*db.lock().await)
+                            {
+                                Ok(sn) => return sn,
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                7 => {
+                    if let Some(cid_str) = args.get("classroom_id"){
+                        if let Ok(cid) = cid_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Get(backend::GET::Classroom { classroom_id: cid }), 
+                                &*db.lock().await)
+                            {
+                                Ok(sn) => return sn,
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                8 => {
+                    if let Some(did_str) = args.get("place_id"){
+                        if let Ok(did) = did_str.parse::<u16>(){
+                            match manipulate_database(
+                                MainpulationType::Get(backend::GET::Corridor { corridor_id: did }), 
+                                &*db.lock().await)
+                            {
+                                Ok(sn) => return sn,
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                9 => {
+                    if let Some(yid_str) = args.get("year_id"){
+                        if let Ok(yid) = yid_str.parse::<u8>(){
+                            match manipulate_database(
+                                MainpulationType::Get(backend::GET::Year { year: yid }), 
+                                &*db.lock().await)
+                            {
+                                Ok(sn) => return sn,
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                10 => {
+                    if let Some(sid_str) = args.get("sem_id"){
+                        if let Ok(sid) = sid_str.parse::<u8>(){
+                            match manipulate_database(
+                                MainpulationType::Get(backend::GET::Semester { semester: sid }), 
+                                &*db.lock().await)
+                            {
+                                Ok(sn) => return sn,
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                11 => {
+                    if let Some(bid_str) = args.get("break_num"){
+                        if let Ok(bid) = bid_str.parse::<u8>(){
+                            match manipulate_database(
+                                MainpulationType::Get(backend::GET::Break { break_hour: bid }), 
+                                &*db.lock().await)
+                            {
+                                Ok(sn) => return sn,
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
+                                    visual::error(Some(error), "Database Error");
+                                }
+                            }
+                        }
+                    }
+                }
+                12 => {
+                    if let Some(lid_str) = args.get("lesson_hour"){
+                        if let Ok(lid) = lid_str.parse::<u8>(){
+                            match manipulate_database(
+                                MainpulationType::Get(backend::GET::LessonHour { lesson_hour: lid }), 
+                                &*db.lock().await)
+                            {
+                                Ok(sn) => return sn,
+                                Err(error) => {
+                                    if error == rusqlite::Error::QueryReturnedNoRows{
+                                        return "404 - Not found".to_string();
+                                    }
                                     visual::error(Some(error), "Database Error");
                                 }
                             }
