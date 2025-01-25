@@ -4,10 +4,10 @@
  */
 
 :root{
-	--dark: #393E46;
-	--text: #F2F2F2;
-	--accent2: #5C636E;
-	--accent1: #F96D00;
+	--dark: #283739;
+	--text: #E0E0E0;
+	--accent2: #2C5D63;
+	--accent1: #A2C11C;
 }
 
 @font-face{
@@ -151,4 +151,23 @@ tr:hover{
 	margin: auto;
 	margin-top: 0.55vh;
 	margin-bottom: 0.55vh;
+}
+@media only screen and (max-width: 900px){
+	#NAVM{
+		display: flex;
+		width: auto;
+		height: auto;
+		flex-direction: column;
+		margin-bottom: 5vh;
+	}
+	#NAVM a{
+		margin: 2vh;
+	}
+	input, button, select{
+		border-width: 1.25vw;
+	}
+	.login{
+		border-width: 2vw;
+		width: 71vw;
+	}
 }

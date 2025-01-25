@@ -152,6 +152,9 @@ pub async fn handle_connection(mut stream: TcpStream, db_ptr: Arc<Mutex<rusqlite
                         else {
                             if !w.starts_with("/?"){
                                 if w.ends_with(".js"){
+                                    if w == "/main.js"{
+
+                                    }
                                     types = vec!["text/javascript".to_string()];
                                 }
                                 file_path = format!("./web{}", w)
@@ -311,7 +314,6 @@ async fn handle_custom_request
                                     }
                                 }
                                 to_return.push_str("</table>");
-                                println!("{}", to_return);
                                 return to_return
                                 }
                                 Err(err) => {
@@ -808,6 +810,170 @@ async fn handle_custom_request
                         return (**password == set_password).to_string();
                     }
                     todo!()
+                }
+                ("DELETE", 0) => {
+                    if let (Some(classid_str), Some(weekd_str), Some(lessonh_str), Some(semester_str), Some(ay_str)) = (args.get("class_id"),
+                    args.get("weekday"), args.get("lesson_hour"), args.get("semester"), args.get("academic_year")){
+                        if let (Ok(class), Ok(weekd), Ok(lessonh), Ok(semester), Ok(academic_year)) = 
+                            (classid_str.parse::<u16>(), weekd_str.parse::<u8>(), lessonh_str.parse::<u16>(), semester_str.parse::<u8>(), ay_str.parse::<u8>()){
+                            match manipulate_database(
+                                MainpulationType::Delete(
+                                    backend::Delete::Lesson { class, weekd, lessonh, semester, academic_year }), 
+                                &*db.lock().await)
+                            {
+                                Ok(response) => return response,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D0: We couldn't delete data from database", "E-D0: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 1) => {
+                    if let (Some(teacherid_str), Some(weekd_str), Some(lessonh_str), Some(semester_str), Some(ay_str)) = (args.get("teacher_id"),
+                    args.get("weekday"), args.get("break_num"), args.get("semester"), args.get("academic_year")){
+                        if let (Ok(teacher_id), Ok(weekday), Ok(break_num), Ok(semester), Ok(academic_year)) = 
+                            (teacherid_str.parse::<u16>(), weekd_str.parse::<u8>(), lessonh_str.parse::<u8>(), semester_str.parse::<u8>(), ay_str.parse::<u8>()){
+                            match manipulate_database(
+                                MainpulationType::Delete(
+                                    backend::Delete::Duty { teacher_id, weekday, break_num, semester, academic_year }), 
+                                &*db.lock().await)
+                            {
+                                Ok(response) => return response,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D1: We couldn't delete data from database", "E-D1: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 2) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u16>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::Class { class: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D2: We couldn't delete data from database", "E-D2: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 3) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u16>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::Classroom { classroom: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D3: We couldn't delete data from database", "E-D3: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 4) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u16>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::Subject { subject: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D4: We couldn't delete data from database", "E-D4: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 5) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u16>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::Teacher { teacher: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D5: We couldn't delete data from database", "E-D5: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 6) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u8>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::Year { academic_year: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D6: We couldn't delete data from database", "E-D6: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 7) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u8>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::Semester { semester: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D7: We couldn't delete data from database", "E-D7: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 8) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u16>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::Corridor { corridor: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D8: We couldn't delete data from database", "E-D8: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 9) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u16>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::LessonHour { lessonh: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D9: We couldn't delete data from database", "E-D9: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                ("DELETE", 10) => {
+                    if let Some(id_str) = args.get("id"){
+                        if let Ok(id) = id_str.parse::<u16>(){
+                            match manipulate_database(MainpulationType::Delete(backend::Delete::Break { break_num: id }), &*db.lock().await)
+                            {
+                                Ok(res) => return res,
+                                Err(err) => {
+                                    visual::error(Some(err), "Database Error");
+                                    return lang.english_or("E-D10: We couldn't delete data from database", "E-D10: Nie byliśmy w stanie usunąć danych z bazy danych").to_string();
+                                }
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }

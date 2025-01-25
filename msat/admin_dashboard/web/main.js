@@ -36,6 +36,7 @@ const NAVM = $("NAVM");
 function main(){
 	$("ADMIN").innerHTML = en_or_pl("Admin Panel", "Panel Administratora");
 	$("SEARCH").innerHTML = en_or_pl("Search Data", "Wyszukaj Dane");
+	$("DELETE").innerHTML = en_or_pl("Delete Data", "Usuń Dane");
 	$("DASHBOARD").innerHTML = en_or_pl("Dashboard", "Ekran Wejściowy");
 	$("INFO").innerHTML = en_or_pl("Information", "Informacje");
 	for (let i=0; i<NAVM.childElementCount; i++){
@@ -66,6 +67,9 @@ function refresh(hash){
 						break;
 					case "#search":
 						search_component();
+						break;
+					case "#delete":
+						delete_component();
 						break;
 					default:
 						dashboard_comp();
@@ -108,10 +112,220 @@ function check_password(password){
 	return false;
 }
 
+function delete_component(){
+	ROOT.innerHTML = `
+	<div class='login'> 
+		<h2 style='color:var(--accent1)'>${en_or_pl("Delete Data", "Usuń Dane")}</h2>
+		<p>${en_or_pl("(Only works on unused data)", "(Działa tylko na nieużywanych danych)")}</p>
+		<select id='selection'>
+			<option value='0'>-</option>
+			<option value='1'>${en_or_pl("Teacher", "Nauczyciela")}</option>
+			<option value='2'>${en_or_pl("Subject", "Przedmiot")}</option>
+			<option value='3'>${en_or_pl("Class", "Klasę(8)")}</option>
+			<option value='4'>${en_or_pl("Classroom", "Klasę")}</option>
+			<option value='5'>${en_or_pl("Lesson Hour", "Godzinę Lekcyjną")}</option>
+			<option value='6'>${en_or_pl("Break Hour", "Przerwę")}</option>
+			<option value='7'>${en_or_pl("Duty Place", "Miejsce Przerwy")}</option>
+			<option value='8'>${en_or_pl("Semester", "Semestr")}</option>
+			<option value='9'>${en_or_pl("Academic Year", "Rok szkolny")}</option>
+			<option value='10'>${en_or_pl("Lesson", "Lekcję")}</option>
+			<option value='11'>${en_or_pl("Duty", "Dyżur")}</option>
+		</select>
+		<div id='selection_output'>
+
+		</div>
+		<div id='results'>
+
+		</div>
+		<button id='submit'>${en_or_pl("Search", "Wyszukaj")}</button>
+	</div>
+	`;
+	$("selection").onchange = function () {
+		switch ($("selection").value){
+			case "1":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Teacher ID", "Identyfikator Nauczyciela")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+5&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "2":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Subject ID", "Identyfikator Przedmiotu")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+4&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "3":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Class ID", "Identyfikator Klasy")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+2&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "5":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Lesson Hour", "Godzina Lekcyjna")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+9&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "4":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Classroom ID", "Identyfikator Klasy")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+3&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "6":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Break Num", "Numer przerwy")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+10&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "7":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Place ID", "Identyfikator miejsca")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+8&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "8":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Semester ID", "Identyfikator semestru")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+7&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "9":
+				$('selection_output').innerHTML = `
+				<input id='x' type='number' min='1' max='65535' placeholder='${en_or_pl("Year ID", "Identyfikator roku")}'>`;
+				$('submit').onclick = function (){
+					const x = $('x').value;
+					if (x!=null){
+						fetch(`/?msat/${MSAT_VERSION}&method=DELETE+6&password=${get_cookie('password')}&id=${x}`)
+						.then(response => response.text())
+						.then(data => {
+							$('results').innerHTML = data;
+						})
+					}
+				}
+				break;
+			case "10":
+				$("selection_output").innerHTML = `
+				<input id='wd' type='number' min=1 max=7 placeholder=${en_or_pl("Weekday", "Dzień tygodnia")}>
+				<input id='ci' type='number' min=1 max=65535 placeholder=${en_or_pl("Class ID", "Klasa(8)")}>
+				<input id='lh' type='number' min=1 max=255 placeholder=${en_or_pl("Lesson hour", "Godzina Lekcyjna")}>
+				<input id='se' type='number' min=1 max=255 placeholder=${en_or_pl("Semester", "Semestr")}>
+				<input id='ay' type='number' min=1 max=255 placeholder=${en_or_pl("Academic Year", "Rok szkolny")}>
+				`;
+				$("submit").onclick = function() {
+					let wd = $("wd").value;
+					let ci = $("ci").value;
+					let lh = $("lh").value;
+					let se = $("se").value;
+					let ay = $("ay").value;
+					if (wd!=null&&ci!=null&&lh!=null&&se!=null&&ay!=null){
+						fetch(
+						`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=DELETE+0&weekday=${wd}&class_id=${ci}&semester=${se}&academic_year=${ay}&lesson_hour=${lh}`
+						).then(response => response.text())
+						.then(data => {
+							alert(data);
+						})
+					}
+				}
+				break;
+			case "11":
+				$("selection_output").innerHTML = `
+				<input id='wd' type='number' min=1 max=7 placeholder="${en_or_pl("Weekday", "Dzień Tygodnia")}">
+				<input id='bn' type='number' min=1 max=255 placeholder="${en_or_pl("Break num","Przerwa")}">
+				<input id='ti' type='number' min=1 max=65535 placeholder="${en_or_pl("Teacher ID", "Nauczyciel")}">
+				<input id='se' type='number' min=1 max=255 placeholder="${en_or_pl("Semester", "Semestr")}">
+				<input id='ay' type='number' min=1 max=255 placeholder="${en_or_pl("Academic Year", "Rok szkolny")}">
+				`
+				$("submit").onclick = function() {
+					let wd = $("wd").value;
+					let bn = $("bn").value;
+					let ti = $("ti").value;
+					let se = $("se").value;
+					let ay = $("ay").value;
+					if (wd!=null&&bn!=null&&ti!=null&&bp!=null&&se!=null&&ay!=null){
+						fetch(
+`/?msat/${MSAT_VERSION}&password=${get_cookie("password")}&method=DELETE+1&weekday=${wd}&teacher_id=${ti}&semester=${se}&academic_year=${ay}&break_num=${bn}`
+						).then(response => response.text())
+						.then(data => {
+							alert(data);
+						})
+					}
+					else{
+						alert(en_or_pl("Enter data", "Wstaw dane"));
+					}
+				}
+				break;
+		}
+	}
+}
 function search_component(){
 	ROOT.innerHTML = `
 	<div class='login'> 
-		<h2>${en_or_pl("Search Data", "Wyszukaj Dane")}</h2>
+		<h2 style='color:var(--accent1)'>${en_or_pl("Search Data", "Wyszukaj Dane")}</h2>
 		<select id='selection'>
 			<option value='0'>-</option>
 			<option value='1'>${en_or_pl("Teacher", "Nauczyciel")}</option>
@@ -267,7 +481,7 @@ function search_component(){
 
 function login_component(){
 	return `
-	<div style='height: 80vh; display:flex; align-items:center;'>
+	<div style='height: 80vh; display:flex; align-items:center; color:var(--accent1)'>
 	<div class='login'>
 		<h2 style='color:var(--accent1)'>${en_or_pl("Log in", "Zaloguj się")}</h2>
 		<input type='number' min=1 max=65535 placeholder='${en_or_pl("Teacher ID", "Identyfikator Nauczyciela")}' id='tid'>
@@ -284,7 +498,7 @@ function info_component(){
 	.then(data => {
 		if (data.startsWith("<error>") === false){
 			ROOT.innerHTML = `
-			<div style='height: 80vh; display: flex; align-items: center;'>
+			<div style='height: 40vh; display: flex; align-items: center;'>
 				<div class='login'>
 				<h1>${en_or_pl("Info", "Informacje")}</h1>
 				<p>${en_or_pl("You are logged in as:", "Jesteś zalogowany/-a jako:")} ${data}</p>
@@ -322,11 +536,6 @@ function dashboard_comp(){
 		ROOT.innerHTML += `<h3 style='text-align:center;'>${en_or_pl("Duties", "Dyżury")}</h3>${data1}`;
 	})
 }
-
-function admin_dashboard_comp(){
-	admin_dashboard_add();
-}
-
 function en_or_pl(en, pl){
 	if (navigator.language == "pl-PL"){
 		return pl;
@@ -336,7 +545,7 @@ function en_or_pl(en, pl){
 	}
 }
 
-function admin_dashboard_add(){
+function admin_dashboard_comp(){
 	ROOT.innerHTML = `
 		<div class='login'>
 			<h1>${en_or_pl("Manipulate Database", "Manipuluj Bazą danych")}</h1>

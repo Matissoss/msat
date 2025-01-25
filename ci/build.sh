@@ -9,6 +9,7 @@ _app_server="app_server"
 _local="localbuild"
 _web="web"
 
+echo "======================"
 echo "COMPILATION VARIABLES"
 echo "build directory: " $_build
 echo "global targets : " ${_rust_target[@]}
@@ -17,20 +18,21 @@ echo "http_server dir: " $_http_server
 echo "app_server dir : " $_app_server
 echo "localbuild dir : " $_local
 echo "web directory  : " $_web
-echo "================"
+echo "======================"
 
 # FUNCTIONS
 
 localbuild_msat() {
 	cd ../msat
 	cargo build --release
-	mkdir ../ci/$_local
-	mkdir ../ci/$_local/data
-	mv target/release/$_http_server ../ci/$_local/$_http_server
-	mv target/release/$_app_server ../ci/$_local/$_app_server
-	cp -r $_http_server/$_web ..ci/$_local/$_web
+	cd ../ci
+	mkdir $_local
+	mkdir $_local/data
+	mv target/release/$_http_server $_local/$_http_server
+	mv target/release/$_app_server  $_local/$_app_server
+	cp -r $_http_server/$_web       $_local/$_web
 	cp -r docs/bundle ci/$_local/docs
-	tar -czvf ../ci/$_local.tar.gz ../ci/$_local
+	tar -czvf $_local.tar.gz  $_local
 }
 
 globalbuild_msat() {
@@ -38,22 +40,23 @@ globalbuild_msat() {
 	for target in "${_rust_target[@]}"; do 
 		cargo build --release --target $target
 	done
-	mkdir ../ci/$_build 
-	mkdir ../ci/$_build/release
+	cd ../ci
+	mkdir $_build 
+	mkdir $_build/release
 	for index in "${!_export_target[@]}"; do 
-		mkdir ../ci/$_build/${_export_target[$index]}
-		mkdir ../ci/$_build/${_export_target[$index]}/data
+		mkdir $_build/${_export_target[$index]}
+		mkdir $_build/${_export_target[$index]}/data
 		if [[ "${_rust_target[$index]}" == "x86_64-pc-windows-gnu" ]]; then
-			mv target/${_rust_target[$index]}/release/$_http_server.exe     ../ci/$_build/${_export_target[$index]}/$_http_server.exe
-			mv target/${_rust_target[$index]}/release/$_app_server.exe      ../ci/$_build/${_export_target[$index]}/$_app_server.exe
+			mv ../msat/target/${_rust_target[$index]}/release/$_http_server.exe  $_build/${_export_target[$index]}/$_http_server.exe
+			mv ../msat/target/${_rust_target[$index]}/release/$_app_server.exe   $_build/${_export_target[$index]}/$_app_server.exe
 		else
-			mv target/${_rust_target[$index]}/release/$_http_server         ../ci/$_build/${_export_target[$index]}/$_http_server
-			mv target/${_rust_target[$index]}/release/$_app_server          ../ci/$_build/${_export_target[$index]}/$_app_server
+			mv ../msat/target/${_rust_target[$index]}/release/$_http_server      $_build/${_export_target[$index]}/$_http_server
+			mv ../msat/target/${_rust_target[$index]}/release/$_app_server       $_build/${_export_target[$index]}/$_app_server
 		fi
-		cp -r $_http_server/$_web        ../ci/$_build/${_export_target[$index]}/$_web
-		cp -r ../docs/bundle             ../ci/$_build/${_export_target[$index]}/docs
+		cp -r ../msat/$_http_server/$_web                                            $_build/${_export_target[$index]}/$_web
+		cp -r ../docs/bundle                                                         $_build/${_export_target[$index]}/docs
 		
-		tar -czvf ../ci/$_build/release/${_export_target[$index]}.tar.gz ../ci/$_build/${_export_target[$index]}
+		tar -czvf $_build/release/${_export_target[$index]}.tar.gz $_build/${_export_target[$index]}
 	done
 }
 

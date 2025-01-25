@@ -8,7 +8,7 @@
 
 # About
 
-**msat** and **msatc** are both FOSS (free and open-source) school administration tool. **msat** is made in Rust, while **msatc** is made in [TODO].
+**msat** is ***FOSS*** (free and open-source) school administration tool.
 
 # Features
 
@@ -20,11 +20,6 @@
 # Install/Setup
 
 Read [SETUP.md](setup.md)
-
-# Dependencies
-
-**msat** relies on [curl](https://curl.se/) to work (app-server only and only for getting public IP, 
-so you can skip)
 
 # License
 

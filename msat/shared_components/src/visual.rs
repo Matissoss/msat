@@ -23,7 +23,7 @@ Flags:
 }
 
 pub fn info(inf: &str){
-    if !*consts::INFO_ALLOWED || !*consts::OUTPUT_ALLOWED{
+    if !*consts::INFO_ALLOWED || *consts::OUTPUT_ALLOWED{
         return;
     }
     if *consts::COLOR_ALLOWED{
@@ -34,7 +34,7 @@ pub fn info(inf: &str){
     }
 }
 pub fn success(inf: &str){
-    if !*consts::OUTPUT_ALLOWED{
+    if *consts::OUTPUT_ALLOWED{
         return;
     }
     if *consts::COLOR_ALLOWED{
@@ -54,7 +54,7 @@ where E: std::fmt::Display
 pub fn error<E>(err: Option<E>, inf: &str)
 where E: std::fmt::Display
 {
-    if !*consts::OUTPUT_ALLOWED{
+    if *consts::OUTPUT_ALLOWED{
         return;
     }
     if *consts::COLOR_ALLOWED{
@@ -80,7 +80,7 @@ where E: std::fmt::Display
 }
 
 pub fn debug(inf: &str){
-    if !*consts::OUTPUT_ALLOWED{
+    if *consts::OUTPUT_ALLOWED{
         return;
     }
     if *consts::DEBUG_MODE{

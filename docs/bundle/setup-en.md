@@ -21,6 +21,5 @@ If you don't want to insert IPv4 just yet, insert in this place: "127.0.0.1" (lo
 4. Connect to admin dashboard inserting this into your browser URL Search: "localhost:8000" (if you did set ip_addr to "127.0.0.1")
 5. Test if admin dashboard works by executing some commands and insert your password into Input Section. You should get feedback, if it 
 works/doesn't work 
-6. Enjoy [^1]
 
-[^1]: This will be expanded, when **msat** client, **msatc** will be finished.
+(Attention): Currently `app_server` has no usecase

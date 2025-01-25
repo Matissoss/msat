@@ -22,6 +22,5 @@ Jeśli jeszcze nie chcesz wstawiać IPv4, wstaw w to miejsce: "127.0.0.1" (lokal
 4. Połącz się z panelem administratorskim **msat** poprzez wstawienie w przeglądrkę następującego URL: "localhost:8000" 
 (jeśli ustawiłeś ip_addr na "127.0.0.1")
 5. Sprawdź czy panel administratorski działa poprzez egzekwowanie kilku komend i wstawieniu hasła w sekcję z wejściem. Powinieneś dostać informację zwrotną jeśli działa lub nie działa. 
-6. Szczęśliwego Używania [^1]
 
-[^1]: Ta część będzie rozszerzona, kiedy klient **msat**, **msatc** zostanie skończony.
+(Uwaga): obecnie `./app_server` nie ma żadnego użytku

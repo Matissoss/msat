@@ -13,9 +13,18 @@ use rusqlite::{
 use tokio::fs;
 use toml;
 use std::collections::HashMap;
+use chrono::{
+    DateTime, Datelike
+};
 // Local Imports 
-use crate::{consts::VERSION, visual};
-use crate::types::*;
+use crate::{
+    types::*,
+    consts::{
+        VERSION,
+        SUPPORTED_VERSIONS
+    }, 
+    visual
+};
 // static/const declaration
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum RequestType{
@@ -61,7 +70,18 @@ impl Request{
     }
     pub fn parse(&self) -> Result<ParsedRequest, ServerError>{
         if !self.request.starts_with(&format!("/?msat/{}", VERSION)) && !self.request.starts_with(&format!("/msat/{}", VERSION)){
-            return Err(ServerError::InvalidRequest(self.request.clone()));
+            let mut supported: bool = false;
+
+            for supported_version in SUPPORTED_VERSIONS{
+                if self.request.starts_with(&format!("/?msat/{}", supported_version)) 
+                    || self.request.starts_with(&format!("/msat/{}", supported_version))
+                {
+                    supported = true;
+                }
+            }
+            if !supported{
+                return Err(ServerError::InvalidRequest(self.request.clone()));
+            }
         }
         let vector = split_str_by(&self.request, '&');
         let mut to_return = ParsedRequest::default();
@@ -449,6 +469,7 @@ pub enum Delete{
     Teacher    {teacher: u16},
     LessonHour {lessonh: u16},
     Corridor   {corridor: u16},
+    Break      {break_num: u16},
     Duty       {weekday: u8, break_num: u8, teacher_id: u16, semester: u8, academic_year: u8}
 }
 
@@ -485,7 +506,7 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                     Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Lesson { class, weekd, lessonh, semester, academic_year } => {
-                    db.execute("DELETE FROM Classes 
+                    db.execute("DELETE FROM Lessons 
                         WHERE class_id  = ?1 AND weekday = ?2 
                         AND lesson_hour = ?3 AND semester = ?4
                         AND academic_year = ?5"
@@ -510,6 +531,10 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                 }
                 Delete::LessonHour { lessonh } => {
                     db.execute("DELETE FROM LessonHours WHERE lesson_hour = ?1", [lessonh])?;
+                    Ok("msat/201-Deleted".to_string())
+                }
+                Delete::Break { break_num } => {
+                    db.execute("DELETE FROM Breaks WHERE break_num = ?1", [break_num])?;
                     Ok("msat/201-Deleted".to_string())
                 }
                 Delete::Duty { weekday, break_num, teacher_id, semester, academic_year } => {
@@ -690,8 +715,15 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                             row.get(2).unwrap_or_default()
                         ))
                     })?;
-                    Ok(format!("Nazwa/Name: {} Od/From: {} Do/To: {}", 
-                            year_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')))
+                    
+                    if let (Ok(start), Ok(end)) = 
+                    (DateTime::parse_from_rfc3339(&start_date), DateTime::parse_from_rfc3339(&end_date))
+                    {
+                        return Ok(format!("Nazwa/Name: {} Od/From: {:02}.{:02}.{:04} Do/To: {:02}.{:02}.{:04}", 
+                            year_name, start.day(), start.month(), 
+                            start.year(), end.day(), end.month(), end.year()))
+                    }
+                    return Ok("E:DF3339".to_string());
                 }
                 GET::Lesson { class, lesson_hour, weekd, semester, academic_year } => {
                     let mut stmt = db.prepare("SELECT classroom_id, teacher_id, subject_id FROM Lessons 
@@ -722,8 +754,14 @@ pub fn manipulate_database(manipulation: MainpulationType, db: &rusqlite::Connec
                                     row.get(2).unwrap_or_default()
                             ))
                         })?;
-                    Ok(format!("Nazwa/Name: {} Od/From: {} Do/To: {}", 
-                        semester_name.to_single('_'), start_date.to_single('_'), end_date.to_single('_')))
+                    if let (Ok(start), Ok(end)) = 
+                    (DateTime::parse_from_rfc3339(&start_date), DateTime::parse_from_rfc3339(&end_date))
+                    {
+                        return Ok(format!("Nazwa/Name: {} Od/From: {:02}.{:02}.{:04} Do/To: {:02}.{:02}.{:04}", 
+                            semester_name, start.day(), start.month(), 
+                            start.year(), end.day(), end.month(), end.year()))
+                    }
+                    return Ok("E:DF3339".to_string());
                 }
                 GET::LessonHour { lesson_hour } => {
                     let mut stmt = db.prepare("SELECT start_hour, start_minutes, end_hour, end_minutes 

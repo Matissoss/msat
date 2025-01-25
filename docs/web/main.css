@@ -1,209 +1,181 @@
+/*  
+ *  This CSS file was made by MateusDev 
+ *  and is distributed under X11 (MIT) License
+ */
+
 :root{
-	--primary: #1C1C1C;
-	--secondary: #dddddd;
-	--yellow: #fbf236;
-	--red: #ac3232;
-	--blue: #3f3f74;
-	--green: #6abe30;
+	--dark: #283739;
+	--text: #E0E0E0;
+	--accent2: #2C5D63;
+	--accent1: #A2C11C;
 }
-nav {
-	position: sticky;
+
+@font-face{
+	font-family: std;
+	src: url("fonts/Lato-Regular.ttf")
+}
+
+/*Navigation Menu :)*/
+nav{
+	display: flex;
+	flex-direction: row;
+	background-color: var(--accent1);
+	justify-content: center;
 	margin: auto;
 	width: 95vw;
 	height: 7vh;
-	display: flex;
-	background-color: var(--red);
-	color: var(--secondary);
-	flex-direction: row;
-}
-main{
-	width: 99vw;
-}
-body{
-	background-color: var(--primary);
-	color: var(--secondary);
-	text-align: center;
-	overflow-x: hidden;
-	scroll-behavior: smooth;
-}
-h1,h2,h3,p{
-	margin-bottom: 0;
-	margin-top: 0;
-}
-h1{
-	font-weight: bolder;
-	font-size: 350%;
-}
-h2{
-	font-weight: bold;
-	font-size: 200%;
-}
-h3{
-	font-weight: 800;
-	font-size: 175%;
-}
-p, strong, i{
-	font-size: 115%;
-	font-weight: 600;
-}
-p{
-	font-size: 125%;
-}
-strong{
-	font-weight: bolder;
 }
 nav img{
-	display: block;
-	margin: auto;
-	height: 7vh;
-	width: 7vh;
-}
-table{
-	width: 50vw;
-	margin: auto;
-	border: 0.125vw solid var(--secondary);
-	padding: 0.5vw;
-}
-code{
-	text-align: left;
-	font-size: 125%;
-	word-break: normal;
-	white-space: pre-line;
-	color: var(--red);
-}
-td{
-	border: 0.125vw solid var(--secondary);
-	padding: 0.5vw
-}
-a{
-	color: var(--secondary);
-	transition: 0.125s all
-}
-a:hover{
-	color: var(--yellow);
+	height: 6vh;
+	width: 6vh;
 }
 nav a{
-	margin: auto;
-	font-weight: bolder;
-	font-size: 150%;
-	color: var(--secondary);
-	transition: 0.25s all;
-}
-sep{
-	width: .15%;
-	height: 100%;
-	background-color: var(--secondary)
-}
-hr{
-	width: 80vw;
-	margin: auto;
+	color: var(--text);
+	font-weight: bold;
+	text-decoration: none;
+	transition: 0.125s all;
 }
 nav a:hover{
-	color: var(--primary);
+	color: var(--accent2);
+	text-decoration: underline;
 }
+nav *{
+	margin: auto;
+}
+
 .container{
-	width: auto;
-	height: auto;
-	padding: 1.5vw;
-	border: solid var(--secondary) 0.25vw;
-	margin: auto;
-	margin-bottom: 5vh;
-	margin-top: 5vh
-}
-
-.container-header-with-logo{
-	display: flex;
-	flex-direction: row;
-}
-.container-header-with-logo img{
-	display: block;
-	margin: auto;
-	height: 75%;
-	width: 75%;
-}
-.row, .column{
-	width: auto;
-	height: auto;
-}
-
-.row{
-	display: flex;
-	flex-direction: row;
-}
-.column{
 	display: flex;
 	flex-direction: column;
+	width: 80vw;
+	background-color: var(--text);
+	color: var(--dark);
+	padding: 0.5vw;
+	margin: auto;
 }
 
-.button-more, .button-less, .button-gith{
-	border: solid 0.125vw var(--secondary);
-	border-radius: .5vw;
+body{
+	background-color: var(--dark);
+	color: var(--text);
+	font-family: std;
+	text-align: center;
+	font-size: 120%;
+}
+h1{
+	color: var(--accent1);
+}
+h2{
+	color: var(--accent2)
+}
+
+button, input, select{
+	border: 0.3vw solid var(--accent2);
 	padding: 0.25vw;
-	width: 20vw;
-	font-size: 125%;
-	height: 7vh;
+	font-size: 100%;
+	width: 12vw;
+	height: 6vh;
+	text-align: center;
 	font-weight: bolder;
-	transition: 0.25s all;
-	margin-bottom: 1.2vh;
-	margin-top: 1.2vh
+	background-color: var(--accent2);
+	color: var(--text);
+	transition: 0.125s all;
 }
-
-.button-less{
-	background-color: var(--primary);
-	color: var(--secondary);
-}
-.button-less:hover{
-	color: var(--primary);
+button:hover, input:hover, select:hover{
 	cursor: pointer;
-	background-color: var(--secondary);
+	border-color: var(--text);
 }
-.button-more{
-	background-color: var(--secondary);
-	color: var(--primary);
+button:focus, input:focus, select:focus{
+	outline: none;
+	border-color: var(--accent1);
 }
-.button-more:hover{
+option{
+	font-family: std;
+	font-weight: bolder;
+	text-align: center;
+}
+input::placeholder{
+	color: var(--accent1);
+	text-align: center;
+}
+input{
+	width: 12vw;
+	height: 4vh;
+}
+error, success{
+	display: block;
+	width: 60vw;
+	background-color: var(--accent1);
+	padding: 0.2vw;
+	text-align: center;
+	margin: auto;
+}
+success{
+	background-color: var(--accent2);
+}
+table{
+	border: 0.5vw solid var(--text);
+	margin: auto;
+	width: 90vw;
+	height: auto;
+}
+td{
+	margin: 0;
+	padding: 0.25vw;
+	border-bottom: 0.125vw solid var(--text);
+	text-align: center;
+}
+a{
+	color: var(--accent1);
+}
+tr:hover{
 	cursor: pointer;
-	border-color: #c5c5c5;
-	background-color: #c5c5c5;
+	background-color: var(--accent2);
 }
-
-.button-gith{
-	background-color: var(--yellow);
-	color: var(--primary);
-	border-color: var(--yellow)
+.etd *{
+	border-bottom: 0;
 }
-.button-gith:hover{
-	cursor: pointer;
-	background-color: #d9d014;
-	border-color: #d9d014;
+.login{
+	border: 0.2vw solid var(--text);
+	width: 50vw;
+	height: 50vh;
+	height: auto;
+	display: flex;
+	text-align: center;
+	flex-direction: column;
+	align-self: center;
+	margin: auto;
+	padding: 2vw;
 }
-
-@media screen and (max-width: 900px){
+.login *{
+	width: 85%;
+	margin: auto;
+	margin-top: 0.55vh;
+	margin-bottom: 0.55vh;
+}
+code{
+	background-color: var(--text);
+	color: var(--dark);
+	text-align: left;
+	width: 50vw;
+}
+@media only screen and (max-width: 900px){
 	nav{
-		position: static;
+		display: flex;
+		width: auto;
+		height: auto;
 		flex-direction: column;
-		height: 50vh;
-	}
-	nav img{
-		height: 30vh;
-		width: 30vh;
-	}
-	nav sep{
-		border: 0;
-		width: 75%;
-		height: .15%;
-		margin: auto;
-		border-top: 0.5vw solid var(--secondary);
-		border-bottom: 0.5vw solid var(--secondary);
-	}
-	.button-more, .button-less, .button-gith {
-		width: 80vw;
-		display: block;
-		border-width: .75vh;
-		border-radius: .75vh;
-		margin: auto;
-		margin-top: 5vh;
 		margin-bottom: 5vh;
-		height: 10vh;
+	}
+	nav a{
+		margin: 2vh;
+	}
+	input, button, select{
+		border-width: 1.25vw;
+	}
+	button{
+		width: 80vw;
+	}
+	.login{
+		border-width: 2vw;
+		width: 71vw;
 	}
 }

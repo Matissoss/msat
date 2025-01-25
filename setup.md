@@ -33,17 +33,18 @@ Example configuration:
 ```toml
 # Password for testing purposes
 password="test"
-language="Polish|English" # (CHOOSE ONE)
+# CHOOSE ONE
+language="Polish|English"
 
 [http_server]
 port = 8000
-# You should probably keep this at 127.0.0.1 (localhost), because it doesn't have any kind of protection
 ip = "127.0.0.1"
-# Max connections at once server can have
+# max connections server can have at once
 max_connections = 100
 # How much seconds will server wait with next requests
 max_timeout_seconds = 10
 
+# application_server has no usecase rignt now, but this config is required for msat to work :)
 [application_server]
 port = 8888
 ip = "127.0.0.1"
