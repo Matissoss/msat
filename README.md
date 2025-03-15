@@ -6,6 +6,8 @@
 
 ---
 
+# THIS PROJECT IS ABANDONED
+
 # About
 
 **msat** is ***FOSS*** (free and open-source) school administration tool.
